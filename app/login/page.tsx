@@ -85,10 +85,6 @@ export default function LoginPage() {
           setError("请输入验证码")
           return
         }
-        if (formData.verificationCode.length !== 6) {
-          setError("验证码应为6位数字")
-          return
-        }
       }
 
       // 模拟API调用
@@ -100,7 +96,7 @@ export default function LoginPage() {
         name: isLogin ? formData.email.split("@")[0] : formData.name,
         email: formData.email,
         phone: formData.phone,
-        role: formData.role,
+        role: isLogin ? formData.role : "admin", // 注册用户默认为管理员
         avatar: `/placeholder.svg?height=40&width=40`,
       }
 
@@ -138,7 +134,7 @@ export default function LoginPage() {
               <GraduationCap className="w-8 h-8 text-white" />
             </div>
             <CardTitle className="text-2xl font-bold text-gray-800">教育管理系统</CardTitle>
-            <CardDescription className="text-gray-500">{isLogin ? "登录您的账户" : "创建新账户"}</CardDescription>
+            <CardDescription className="text-gray-500">{isLogin ? "登录您的账户" : "创建账户"}</CardDescription>
           </CardHeader>
 
           <CardContent className="pt-0">
@@ -319,11 +315,10 @@ export default function LoginPage() {
                       <Input
                           id="verificationCode"
                           type="text"
-                          placeholder="请输入6位验证码"
+                          placeholder="请输入验证码"
                           value={formData.verificationCode}
                           onChange={(e) => setFormData({ ...formData, verificationCode: e.target.value })}
                           required
-                          maxLength={6}
                           className="py-5 px-4 rounded-xl flex-1"
                       />
                       <Button
@@ -348,43 +343,6 @@ export default function LoginPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="role" className="flex items-center text-gray-700">
-                      {getRoleIcon(formData.role)}
-                      <span className="ml-2">身份</span>
-                    </Label>
-                    <Select
-                        value={formData.role}
-                        onValueChange={(value: "student" | "teacher" | "admin") =>
-                            setFormData({ ...formData, role: value })
-                        }
-                    >
-                      <SelectTrigger className="py-5 px-4 rounded-xl">
-                        <SelectValue placeholder="选择身份" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="student">
-                          <div className="flex items-center space-x-2">
-                            <User className="w-4 h-4" />
-                            <span>学生</span>
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="teacher">
-                          <div className="flex items-center space-x-2">
-                            <GraduationCap className="w-4 h-4" />
-                            <span>教师</span>
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="admin">
-                          <div className="flex items-center space-x-2">
-                            <Shield className="w-4 h-4" />
-                            <span>系统管理员</span>
-                          </div>
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
                     <Label htmlFor="password" className="flex items-center text-gray-700">
                       <Key className="w-4 h-4 mr-2" />
                       密码
@@ -393,7 +351,7 @@ export default function LoginPage() {
                       <Input
                           id="password"
                           type={showPassword ? "text" : "password"}
-                          placeholder="请输入密码"
+                          placeholder="请输入密码（至少6位）"
                           value={formData.password}
                           onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                           required
@@ -427,6 +385,11 @@ export default function LoginPage() {
                     />
                   </div>
 
+                  <div className="py-2 px-4 bg-blue-50 rounded-lg text-blue-700 flex items-center">
+                    <Shield className="w-4 h-4 mr-2 text-blue-600" />
+                    <span>信息保护</span>
+                  </div>
+
                   {error && (
                       <Alert variant="destructive" className="rounded-xl">
                         <AlertDescription>{error}</AlertDescription>
@@ -442,14 +405,14 @@ export default function LoginPage() {
                       </svg>
                       注册中...
                     </span>
-                    ) : "注册"}
+                    ) : "注册账户"}
                   </Button>
                 </form>
               </TabsContent>
             </Tabs>
 
             <div className="mt-6 text-center text-sm text-gray-500">
-              <p>© 2023 教育管理系统 | 让学习更高效</p>
+              <p>© 2025 教育管理系统 | 让学习更高效</p>
             </div>
           </CardContent>
         </Card>
