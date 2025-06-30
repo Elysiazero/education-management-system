@@ -1,0 +1,19 @@
+0 verbose cli D:\NODEJS\node.exe D:\NODEJS\node_modules\npm\bin\npm-cli.js
+1 info using npm@10.9.2
+2 info using node@v22.14.0
+3 silly config load:file:D:\NODEJS\node_modules\npm\npmrc
+4 silly config load:file:e:\大二下\参考前端\education-management-system\.npmrc
+5 silly config load:file:C:\Users\lenovo\.npmrc
+6 silly config load:file:D:\NODEJS\node_global\etc\npmrc
+7 verbose title npm view @radix-ui/react-navigation-menu description dist-tags.latest homepage version time
+8 verbose argv "view" "--json" "--" "@radix-ui/react-navigation-menu" "description" "dist-tags.latest" "homepage" "version" "time"
+9 verbose logfile logs-max:10 dir:e:\大二下\参考前端\education-management-system\.npm-cache\_logs\2025-06-29T12_17_11_052Z-
+10 verbose logfile e:\大二下\参考前端\education-management-system\.npm-cache\_logs\2025-06-29T12_17_11_052Z-debug-0.log
+11 silly logfile done cleaning log files
+12 http fetch GET 200 https://registry.npmmirror.com/@radix-ui%2freact-navigation-menu 267ms (cache revalidated)
+13 verbose cwd e:\大二下\参考前端\education-management-system
+14 verbose os Windows_NT 10.0.26100
+15 verbose node v22.14.0
+16 verbose npm  v10.9.2
+17 verbose exit 0
+18 info ok

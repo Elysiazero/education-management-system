@@ -1,0 +1,18 @@
+'Log files:
+E:\大二下\参考前端\education-management-system\.npm-cache\_logs\2025-06-29T12_08_53_833Z-debug-0.log
+
+# npm resolution error report
+
+While resolving: my-v0-project@0.1.0
+Found: react@19.1.0
+node_modules/react
+  react@"^19" from the root project
+
+Could not resolve dependency:
+peer react@"^16.8 || ^17.0 || ^18.0" from vaul@0.9.9
+node_modules/vaul
+  vaul@"^0.9.6" from the root project
+
+Fix the upstream dependency conflict, or retry
+this command with --force or --legacy-peer-deps
+to accept an incorrect (and potentially broken) dependency resolution.

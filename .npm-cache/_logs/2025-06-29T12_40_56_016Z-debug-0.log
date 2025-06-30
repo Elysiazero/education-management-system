@@ -1,0 +1,86 @@
+0 verbose cli D:\NODEJS\node.exe D:\NODEJS\node_modules\npm\bin\npm-cli.js
+1 info using npm@10.9.2
+2 info using node@v22.14.0
+3 silly config load:file:D:\NODEJS\node_modules\npm\npmrc
+4 silly config load:file:E:\大二下\参考前端\education-management-system\.npmrc
+5 silly config load:file:C:\Users\lenovo\.npmrc
+6 silly config load:file:D:\NODEJS\node_global\etc\npmrc
+7 verbose title npm install react-is
+8 verbose argv "install" "react-is"
+9 verbose logfile logs-max:10 dir:E:\大二下\参考前端\education-management-system\.npm-cache\_logs\2025-06-29T12_40_56_016Z-
+10 verbose logfile E:\大二下\参考前端\education-management-system\.npm-cache\_logs\2025-06-29T12_40_56_016Z-debug-0.log
+11 silly logfile start cleaning logs, removing 1 files
+12 silly packumentCache heap:4345298944 maxSize:1086324736 maxEntrySize:543162368
+13 silly logfile done cleaning log files
+14 silly idealTree buildDeps
+15 silly fetch manifest react-is@*
+16 silly packumentCache full:https://registry.npmmirror.com/react-is cache-miss
+17 http fetch GET 200 https://registry.npmmirror.com/react-is 259ms (cache revalidated)
+18 silly packumentCache full:https://registry.npmmirror.com/react-is set size:4412238 disposed:false
+19 silly placeDep ROOT react-is@19.1.0 OK for: my-v0-project@0.1.0 want: *
+20 silly fetch manifest react@^16.8 || ^17.0 || ^18.0
+21 silly packumentCache full:https://registry.npmmirror.com/react cache-miss
+22 http fetch GET 200 https://registry.npmmirror.com/react 55ms (cache revalidated)
+23 silly packumentCache full:https://registry.npmmirror.com/react set size:5489138 disposed:false
+24 silly fetch manifest react-dom@^16.8 || ^17.0 || ^18.0
+25 silly packumentCache full:https://registry.npmmirror.com/react-dom cache-miss
+26 http fetch GET 200 https://registry.npmmirror.com/react-dom 44ms (cache revalidated)
+27 silly packumentCache full:https://registry.npmmirror.com/react-dom set size:7081180 disposed:false
+28 verbose stack Error: could not resolve
+28 verbose stack     at PlaceDep.failPeerConflict (D:\NODEJS\node_modules\npm\node_modules\@npmcli\arborist\lib\place-dep.js:503:25)
+28 verbose stack     at new PlaceDep (D:\NODEJS\node_modules\npm\node_modules\@npmcli\arborist\lib\place-dep.js:157:21)
+28 verbose stack     at #buildDepStep (D:\NODEJS\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\build-ideal-tree.js:920:18)
+28 verbose stack     at async Arborist.buildIdealTree (D:\NODEJS\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\build-ideal-tree.js:181:7)
+28 verbose stack     at async Promise.all (index 1)
+28 verbose stack     at async Arborist.reify (D:\NODEJS\node_modules\npm\node_modules\@npmcli\arborist\lib\arborist\reify.js:131:5)
+28 verbose stack     at async Install.exec (D:\NODEJS\node_modules\npm\lib\commands\install.js:150:5)
+28 verbose stack     at async Npm.exec (D:\NODEJS\node_modules\npm\lib\npm.js:207:9)
+28 verbose stack     at async module.exports (D:\NODEJS\node_modules\npm\lib\cli\entry.js:74:5)
+29 error code ERESOLVE
+30 error ERESOLVE could not resolve
+31 error
+32 error While resolving: vaul@0.9.9
+32 error Found: react@19.1.0[2m[22m
+32 error [2mnode_modules/react[22m
+32 error   [95mpeer[39m react@">=16.8.0" from @floating-ui/react-dom@2.1.4[2m[22m
+32 error   [2mnode_modules/@floating-ui/react-dom[22m
+32 error     @floating-ui/react-dom@"^2.0.0" from @radix-ui/react-popper@1.2.1[2m[22m
+32 error     [2mnode_modules/@radix-ui/react-popper[22m
+32 error       @radix-ui/react-popper@"1.2.1" from @radix-ui/react-hover-card@1.1.4[2m[22m
+32 error       [2mnode_modules/@radix-ui/react-hover-card[22m
+32 error         @radix-ui/react-hover-card@"1.1.4" from the root project
+32 error       4 more (@radix-ui/react-menu, @radix-ui/react-popover, ...)
+32 error   [95mpeer[39m react@"^16.8 || ^17.0 || ^18.0 || ^19.0 || ^19.0.0-rc" from @radix-ui/react-accordion@1.2.2[2m[22m
+32 error   [2mnode_modules/@radix-ui/react-accordion[22m
+32 error     @radix-ui/react-accordion@"1.2.2" from the root project
+32 error   71 more (@radix-ui/react-alert-dialog, @radix-ui/react-arrow, ...)
+32 error
+32 error Could not resolve dependency:
+32 error [95mpeer[39m react@"^16.8 || ^17.0 || ^18.0" from vaul@0.9.9[2m[22m
+32 error [2mnode_modules/vaul[22m
+32 error   vaul@"^0.9.6" from the root project
+32 error
+32 error Conflicting peer dependency: react@18.3.1[2m[22m
+32 error [2mnode_modules/react[22m
+32 error   [95mpeer[39m react@"^16.8 || ^17.0 || ^18.0" from vaul@0.9.9[2m[22m
+32 error   [2mnode_modules/vaul[22m
+32 error     vaul@"^0.9.6" from the root project
+32 error
+32 error Fix the upstream dependency conflict, or retry
+32 error this command with --force or --legacy-peer-deps
+32 error to accept an incorrect (and potentially broken) dependency resolution.
+33 error
+33 error
+33 error For a full report see:
+33 error E:\大二下\参考前端\education-management-system\.npm-cache\_logs\2025-06-29T12_40_56_016Z-eresolve-report.txt
+34 silly unfinished npm timer reify 1751200860107
+35 silly unfinished npm timer reify:loadTrees 1751200860108
+36 silly unfinished npm timer idealTree:buildDeps 1751200860194
+37 silly unfinished npm timer idealTree:node_modules/vaul 1751200860485
+38 verbose cwd E:\大二下\参考前端\education-management-system
+39 verbose os Windows_NT 10.0.26100
+40 verbose node v22.14.0
+41 verbose npm  v10.9.2
+42 verbose exit 1
+43 verbose code 1
+44 error A complete log of this run can be found in: E:\大二下\参考前端\education-management-system\.npm-cache\_logs\2025-06-29T12_40_56_016Z-debug-0.log
