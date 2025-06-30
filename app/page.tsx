@@ -203,7 +203,8 @@ export default function HomePage() {
   }
 
   const getModuleCards = () => {
-    const commonModules = [
+    // 普通用户（教师和学生）的模块
+    const userModules = [
       {
         title: "虚拟仿真实验",
         description: "进行虚拟仿真实验操作和学习",
@@ -225,42 +226,52 @@ export default function HomePage() {
         href: "/training-projects",
         color: "bg-purple-50 hover:bg-purple-100",
       },
+      {
+        title: "成绩评估",
+        description: "查看和管理成绩评估",
+        icon: <BarChart3 className="w-8 h-8 text-indigo-600" />,
+        href: "/grades",
+        color: "bg-indigo-50 hover:bg-indigo-100",
+      }
+    ]
+
+    // 管理员的模块
+    const adminModules = [
+      {
+        title: "日志审计",
+        description: "系统操作日志和审计管理",
+        icon: <BarChart3 className="w-8 h-8 text-red-600" />,
+        href: "/audit-logs",
+        color: "bg-red-50 hover:bg-red-100",
+      },
+      {
+        title: "用户管理",
+        description: "管理系统用户和权限",
+        icon: <Users className="w-8 h-8 text-orange-600" />,
+        href: "/user-management",
+        color: "bg-orange-50 hover:bg-orange-100",
+      },
+      {
+        title: "系统监控",
+        description: "监控系统运行状态和性能",
+        icon: <Activity className="w-8 h-8 text-teal-600" />,
+        href: "/system-monitor",
+        color: "bg-teal-50 hover:bg-teal-100",
+      },
+      {
+        title: "配置管理",
+        description: "管理系统配置和参数",
+        icon: <Server className="w-8 h-8 text-cyan-600" />,
+        href: "/configuration",
+        color: "bg-cyan-50 hover:bg-cyan-100",
+      }
     ]
 
     if (user.role === "admin") {
-      return [
-        ...commonModules,
-        {
-          title: "日志审计",
-          description: "系统操作日志和审计管理",
-          icon: <BarChart3 className="w-8 h-8 text-red-600" />,
-          href: "/audit-logs",
-          color: "bg-red-50 hover:bg-red-100",
-        },
-        {
-          title: "用户管理",
-          description: "管理系统用户和权限",
-          icon: <Users className="w-8 h-8 text-orange-600" />,
-          href: "/user-management",
-          color: "bg-orange-50 hover:bg-orange-100",
-        },
-      ]
+      return adminModules
     }
 
-    if (user.role === "teacher" || user.role === "student") {
-      return [
-        ...commonModules,
-        {
-          title: "成绩评估",
-          description: "查看和管理成绩评估",
-          icon: <BarChart3 className="w-8 h-8 text-indigo-600" />,
-          href: "/grades",
-          color: "bg-indigo-50 hover:bg-indigo-100",
-        },
-      ]
-    }
-
-    return commonModules
+    return userModules
   }
 
   const getQuickStats = () => {
