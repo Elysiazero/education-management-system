@@ -250,21 +250,8 @@ export default function HomePage() {
         icon: <Users className="w-8 h-8 text-orange-600" />,
         href: "/user-management",
         color: "bg-orange-50 hover:bg-orange-100",
-      },
-      {
-        title: "系统监控",
-        description: "监控系统运行状态和性能",
-        icon: <Activity className="w-8 h-8 text-teal-600" />,
-        href: "/system-monitor",
-        color: "bg-teal-50 hover:bg-teal-100",
-      },
-      {
-        title: "配置管理",
-        description: "管理系统配置和参数",
-        icon: <Server className="w-8 h-8 text-cyan-600" />,
-        href: "/configuration",
-        color: "bg-cyan-50 hover:bg-cyan-100",
       }
+
     ]
 
     if (user.role === "admin") {
@@ -472,8 +459,8 @@ export default function HomePage() {
         </div>
       </main>
 
-      {/* 成绩预警管理器 */}
-      {user && <GradeAlertManager userId={user.id} />}
+      {/*/!* 成绩预警管理器 *!/*/}
+      {/*{user && <GradeAlertManager userId={user.id} />}*/}
     </div>
   )
 }

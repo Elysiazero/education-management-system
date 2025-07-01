@@ -27,7 +27,6 @@ import {
   Send,
   Edit,
   Trash,
-  Check,
   ChevronDown,
   X,
   List,
@@ -489,14 +488,16 @@ export default function VirtualLabPage() {
                       </div>
                     </div>
 
-                    {/* 实验进度 */}
-                    <div className="mb-6">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm font-medium text-gray-300">实验进度</span>
-                        <span className="text-sm text-gray-300">{selectedExperiment.progress}%</span>
-                      </div>
-                      <Progress value={selectedExperiment.progress} className="bg-gray-700" />
-                    </div>
+                    {/* 实验进度 - 仅学生可见 */}
+                    {user?.role === "student" && (
+                        <div className="mb-6">
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-sm font-medium text-gray-300">实验进度</span>
+                            <span className="text-sm text-gray-300">{selectedExperiment.progress}%</span>
+                          </div>
+                          <Progress value={selectedExperiment.progress} className="bg-gray-700" />
+                        </div>
+                    )}
 
                     {/* 实验控制面板 */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -899,10 +900,13 @@ export default function VirtualLabPage() {
                   </SelectContent>
                 </Select>
 
-                <Button variant="outline" onClick={handleGoToRecords}>
-                  <BookOpen className="w-4 h-4 mr-2" />
-                  我的实验记录
-                </Button>
+                {/* 只对学生显示"我的实验记录"按钮 */}
+                {user?.role === "student" && (
+                    <Button variant="outline" onClick={handleGoToRecords}>
+                      <BookOpen className="w-4 h-4 mr-2" />
+                      我的实验记录
+                    </Button>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -968,7 +972,8 @@ export default function VirtualLabPage() {
                             </div>
                           </div>
 
-                          {experiment.progress > 0 && (
+                          {/* 只对学生显示进度条 */}
+                          {user?.role === "student" && experiment.progress > 0 && (
                               <div>
                                 <div className="flex justify-between text-sm mb-2">
                                   <span>进度</span>

@@ -36,6 +36,7 @@ import {
   Check,
   Trash2,
   ChevronDown,
+  Edit,
 } from "lucide-react"
 
 
@@ -44,6 +45,7 @@ interface User {
   name: string
   email: string
   role: "student" | "teacher" | "admin"
+  classId?: string // 添加班级ID
 }
 
 interface Project {
@@ -71,6 +73,8 @@ interface Team {
   feedback?: string
   leader?: string
   createdAt: string
+  classId?: string
+  assignedTasks: string[] // 团队分配的任务ID
 }
 
 interface Task {
@@ -108,6 +112,11 @@ interface Comment {
   timestamp: string;
 }
 
+interface Class {
+  id: string;
+  name: string;
+}
+
 export default function TrainingProjectsPage() {
   const [user, setUser] = useState<User | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
@@ -117,28 +126,34 @@ export default function TrainingProjectsPage() {
   const [showCreateTeam, setShowCreateTeam] = useState(false)
   const [showJoinTeam, setShowJoinTeam] = useState(false)
   const [showCreateTask, setShowCreateTask] = useState(false)
+  const [showEditTask, setShowEditTask] = useState(false)
   const [currentProjectForTask, setCurrentProjectForTask] = useState<Project | null>(null)
   const [showSubmitTask, setShowSubmitTask] = useState(false)
   const [currentTaskForSubmission, setCurrentTaskForSubmission] = useState<Task | null>(null)
+  const [currentTaskForEdit, setCurrentTaskForEdit] = useState<Task | null>(null)
   const [newProject, setNewProject] = useState({
     title: "",
     description: "",
     dueDate: "",
     category: "",
     difficulty: "初级" as const,
-    tasks: [] as Array<{
-      title: string;
-      description: string;
-      dueDate: string;
-      priority: "high" | "medium" | "low";
-    }>
   })
   const [newTeam, setNewTeam] = useState({
     name: "",
+    classId: "",
     members: [] as string[],
-    leader: ""
+    leader: "",
+    assignedTasks: [] as string[],
   })
   const [newTask, setNewTask] = useState({
+    title: "",
+    description: "",
+    dueDate: "",
+    priority: "medium" as "high" | "medium" | "low",
+    assignedTo: [] as string[],
+  })
+  const [editTask, setEditTask] = useState({
+    id: "",
     title: "",
     description: "",
     dueDate: "",
@@ -153,14 +168,21 @@ export default function TrainingProjectsPage() {
   const [newCommentContent, setNewCommentContent] = useState('');
   const router = useRouter()
 
+  // 班级数据（模拟）
+  const [classes, setClasses] = useState<Class[]>([
+    { id: "class1", name: "计算机科学与技术1班" },
+    { id: "class2", name: "软件工程2班" },
+    { id: "class3", name: "人工智能3班" },
+  ]);
+
   // 班级成员数据（模拟）
   const [classMembers, setClassMembers] = useState<User[]>([
-    { id: "stu1", name: "张三", email: "zhangsan@example.com", role: "student" },
-    { id: "stu2", name: "李四", email: "lisi@example.com", role: "student" },
-    { id: "stu3", name: "王五", email: "wangwu@example.com", role: "student" },
-    { id: "stu4", name: "赵六", email: "zhaoliu@example.com", role: "student" },
-    { id: "stu5", name: "钱七", email: "qianqi@example.com", role: "student" },
-    { id: "stu6", name: "孙八", email: "sunba@example.com", role: "student" },
+    { id: "stu1", name: "张三", email: "zhangsan@example.com", role: "student", classId: "class1" },
+    { id: "stu2", name: "李四", email: "lisi@example.com", role: "student", classId: "class1" },
+    { id: "stu3", name: "王五", email: "wangwu@example.com", role: "student", classId: "class2" },
+    { id: "stu4", name: "赵六", email: "zhaoliu@example.com", role: "student", classId: "class2" },
+    { id: "stu5", name: "钱七", email: "qianqi@example.com", role: "student", classId: "class3" },
+    { id: "stu6", name: "孙八", email: "sunba@example.com", role: "student", classId: "class3" },
   ]);
 
   const handleAddComment = () => {
@@ -209,6 +231,7 @@ export default function TrainingProjectsPage() {
             createdAt: "2024-01-05",
             score: 85,
             feedback: "团队协作良好，代码质量较高，需要加强测试覆盖率",
+            assignedTasks: ["task1", "task2"]
           },
           {
             id: "t2",
@@ -217,6 +240,7 @@ export default function TrainingProjectsPage() {
             progress: 60,
             leader: "stu3",
             createdAt: "2024-01-06",
+            assignedTasks: ["task2"]
           },
         ],
         tasks: [
@@ -278,6 +302,7 @@ export default function TrainingProjectsPage() {
             progress: 35,
             leader: currentUser.id,
             createdAt: "2024-01-10",
+            assignedTasks: ["task3"]
           },
         ],
         tasks: [
@@ -310,18 +335,6 @@ export default function TrainingProjectsPage() {
   }, [router])
 
   const handleCreateProject = () => {
-    // 将表单中的任务转换为Task对象
-    const tasks = newProject.tasks.map(task => ({
-      id: `task-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      title: task.title,
-      description: task.description,
-      completed: false,
-      dueDate: task.dueDate,
-      priority: task.priority,
-      assignedTo: [],
-      submissions: []
-    }));
-
     const project: Project = {
       id: Date.now().toString(),
       title: newProject.title,
@@ -334,7 +347,7 @@ export default function TrainingProjectsPage() {
       difficulty: newProject.difficulty,
       skills: [],
       teams: [],
-      tasks: tasks,
+      tasks: [],
       discussions: [],
     }
     setProjects([...projects, project])
@@ -344,7 +357,6 @@ export default function TrainingProjectsPage() {
       dueDate: "",
       category: "",
       difficulty: "初级",
-      tasks: []
     })
     setShowCreateProject(false)
   }
@@ -359,6 +371,8 @@ export default function TrainingProjectsPage() {
       progress: 0,
       leader: newTeam.leader,
       createdAt: new Date().toISOString().split("T")[0],
+      assignedTasks: newTeam.assignedTasks,
+      classId: newTeam.classId
     }
 
     const updatedProject = {
@@ -368,7 +382,13 @@ export default function TrainingProjectsPage() {
 
     setProjects(projects.map((p) => (p.id === selectedProject.id ? updatedProject : p)))
     setSelectedProject(updatedProject)
-    setNewTeam({ name: "", members: [], leader: "" })
+    setNewTeam({
+      name: "",
+      classId: "",
+      members: [],
+      leader: "",
+      assignedTasks: []
+    })
     setShowCreateTeam(false)
   }
 
@@ -422,6 +442,49 @@ export default function TrainingProjectsPage() {
     })
     setShowCreateTask(false)
     setCurrentProjectForTask(null)
+  }
+
+  // 编辑任务处理函数
+  const handleEditTask = () => {
+    if (!selectedProject || !currentTaskForEdit) return
+
+    const updatedTasks = selectedProject.tasks.map(task => {
+      if (task.id === currentTaskForEdit.id) {
+        return {
+          ...task,
+          title: editTask.title,
+          description: editTask.description,
+          dueDate: editTask.dueDate,
+          priority: editTask.priority,
+          assignedTo: editTask.assignedTo
+        }
+      }
+      return task
+    })
+
+    const updatedProject = {
+      ...selectedProject,
+      tasks: updatedTasks
+    }
+
+    setProjects(projects.map(p => p.id === selectedProject.id ? updatedProject : p))
+    setSelectedProject(updatedProject)
+    setShowEditTask(false)
+    setCurrentTaskForEdit(null)
+  }
+
+  // 打开编辑任务对话框
+  const openEditTaskDialog = (task: Task) => {
+    setCurrentTaskForEdit(task)
+    setEditTask({
+      id: task.id,
+      title: task.title,
+      description: task.description,
+      dueDate: task.dueDate,
+      priority: task.priority,
+      assignedTo: task.assignedTo || []
+    })
+    setShowEditTask(true)
   }
 
   const handleSubmitTask = () => {
@@ -480,42 +543,6 @@ export default function TrainingProjectsPage() {
     setProjects(projects.map(p => p.id === selectedProject.id ? updatedProject : p))
     setSelectedProject(updatedProject)
   }
-
-  const addTaskToProject = () => {
-    setNewProject({
-      ...newProject,
-      tasks: [
-        ...newProject.tasks,
-        {
-          title: "",
-          description: "",
-          dueDate: "",
-          priority: "medium"
-        }
-      ]
-    });
-  };
-
-  const removeTaskFromProject = (index: number) => {
-    const updatedTasks = [...newProject.tasks];
-    updatedTasks.splice(index, 1);
-    setNewProject({
-      ...newProject,
-      tasks: updatedTasks
-    });
-  };
-
-  const updateTaskInProject = (index: number, field: string, value: string) => {
-    const updatedTasks = [...newProject.tasks];
-    updatedTasks[index] = {
-      ...updatedTasks[index],
-      [field]: value
-    };
-    setNewProject({
-      ...newProject,
-      tasks: updatedTasks
-    });
-  };
 
   const getUserTeam = (project: Project) => {
     if (!user) return null
@@ -826,7 +853,7 @@ export default function TrainingProjectsPage() {
                                 创建团队
                               </Button>
                             </DialogTrigger>
-                            <DialogContent className="max-w-md">
+                            <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
                               <DialogHeader>
                                 <DialogTitle>创建新团队</DialogTitle>
                                 <DialogDescription>为项目创建一个新的团队</DialogDescription>
@@ -843,56 +870,118 @@ export default function TrainingProjectsPage() {
                                 </div>
 
                                 <div>
-                                  <Label>团队成员</Label>
-                                  <div className="mt-1 space-y-2">
-                                    {classMembers.map((member) => (
-                                        <div key={member.id} className="flex items-center space-x-2">
-                                          <input
-                                              type="checkbox"
-                                              id={`member-${member.id}`}
-                                              checked={newTeam.members.includes(member.id)}
-                                              onChange={(e) => {
-                                                if (e.target.checked) {
-                                                  setNewTeam({
-                                                    ...newTeam,
-                                                    members: [...newTeam.members, member.id]
-                                                  })
-                                                } else {
-                                                  setNewTeam({
-                                                    ...newTeam,
-                                                    members: newTeam.members.filter(id => id !== member.id)
-                                                  })
-                                                }
-                                              }}
-                                          />
-                                          <label htmlFor={`member-${member.id}`} className="text-sm">
-                                            {member.name}
-                                          </label>
-                                        </div>
-                                    ))}
-                                  </div>
-                                </div>
-
-                                <div>
-                                  <Label htmlFor="teamLeader">团队组长</Label>
+                                  <Label htmlFor="teamClass">选择班级</Label>
                                   <select
-                                      id="teamLeader"
-                                      value={newTeam.leader}
-                                      onChange={(e) => setNewTeam({ ...newTeam, leader: e.target.value })}
+                                      id="teamClass"
+                                      value={newTeam.classId}
+                                      onChange={(e) => setNewTeam({
+                                        ...newTeam,
+                                        classId: e.target.value,
+                                        members: [],
+                                        leader: ""
+                                      })}
                                       className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                                      disabled={newTeam.members.length === 0}
                                   >
-                                    <option value="">请选择团队组长</option>
-                                    {newTeam.members.map((memberId) => {
-                                      const member = classMembers.find(m => m.id === memberId);
-                                      return member ? (
-                                          <option key={memberId} value={memberId}>
-                                            {member.name}
-                                          </option>
-                                      ) : null;
-                                    })}
+                                    <option value="">选择班级</option>
+                                    {classes.map((cls) => (
+                                        <option key={cls.id} value={cls.id}>
+                                          {cls.name}
+                                        </option>
+                                    ))}
                                   </select>
                                 </div>
+
+                                {newTeam.classId && (
+                                    <div>
+                                      <Label>班级成员</Label>
+                                      <div className="mt-1 space-y-2 max-h-40 overflow-y-auto p-2 border rounded-md">
+                                        {classMembers
+                                            .filter(member => member.classId === newTeam.classId)
+                                            .map((member) => (
+                                                <div key={member.id} className="flex items-center space-x-2">
+                                                  <input
+                                                      type="checkbox"
+                                                      id={`member-${member.id}`}
+                                                      checked={newTeam.members.includes(member.id)}
+                                                      onChange={(e) => {
+                                                        if (e.target.checked) {
+                                                          setNewTeam({
+                                                            ...newTeam,
+                                                            members: [...newTeam.members, member.id]
+                                                          })
+                                                        } else {
+                                                          setNewTeam({
+                                                            ...newTeam,
+                                                            members: newTeam.members.filter(id => id !== member.id),
+                                                            // 如果移除的成员是组长，则清空组长选择
+                                                            leader: newTeam.leader === member.id ? "" : newTeam.leader
+                                                          })
+                                                        }
+                                                      }}
+                                                  />
+                                                  <label htmlFor={`member-${member.id}`} className="text-sm">
+                                                    {member.name}
+                                                  </label>
+                                                </div>
+                                            ))}
+                                      </div>
+                                    </div>
+                                )}
+
+                                {newTeam.members.length > 0 && (
+                                    <div>
+                                      <Label htmlFor="teamLeader">团队组长</Label>
+                                      <select
+                                          id="teamLeader"
+                                          value={newTeam.leader}
+                                          onChange={(e) => setNewTeam({ ...newTeam, leader: e.target.value })}
+                                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                      >
+                                        <option value="">请选择团队组长</option>
+                                        {newTeam.members.map((memberId) => {
+                                          const member = classMembers.find(m => m.id === memberId);
+                                          return member ? (
+                                              <option key={memberId} value={memberId}>
+                                                {member.name}
+                                              </option>
+                                          ) : null;
+                                        })}
+                                      </select>
+                                    </div>
+                                )}
+
+                                {selectedProject.tasks.length > 0 && (
+                                    <div>
+                                      <Label>分配任务</Label>
+                                      <div className="mt-1 space-y-2 max-h-40 overflow-y-auto p-2 border rounded-md">
+                                        {selectedProject.tasks.map((task) => (
+                                            <div key={task.id} className="flex items-center space-x-2">
+                                              <input
+                                                  type="checkbox"
+                                                  id={`task-${task.id}`}
+                                                  checked={newTeam.assignedTasks.includes(task.id)}
+                                                  onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                      setNewTeam({
+                                                        ...newTeam,
+                                                        assignedTasks: [...newTeam.assignedTasks, task.id]
+                                                      })
+                                                    } else {
+                                                      setNewTeam({
+                                                        ...newTeam,
+                                                        assignedTasks: newTeam.assignedTasks.filter(id => id !== task.id)
+                                                      })
+                                                    }
+                                                  }}
+                                              />
+                                              <label htmlFor={`task-${task.id}`} className="text-sm">
+                                                {task.title}
+                                              </label>
+                                            </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                )}
 
                                 <Button
                                     onClick={handleCreateTeam}
@@ -978,6 +1067,27 @@ export default function TrainingProjectsPage() {
                                         })}
                                       </div>
                                     </div>
+
+                                    {team.assignedTasks.length > 0 && (
+                                        <div className="mt-3 pt-3 border-t border-gray-200">
+                                          <p className="text-sm font-medium mb-2">分配的任务</p>
+                                          <div className="space-y-2">
+                                            {team.assignedTasks.map(taskId => {
+                                              const task = selectedProject.tasks.find(t => t.id === taskId);
+                                              return task ? (
+                                                  <div key={task.id} className="flex items-center justify-between text-sm p-2 bg-gray-50 rounded">
+                                                <span className={task.completed ? "line-through text-gray-500" : ""}>
+                                                  {task.title}
+                                                </span>
+                                                    <Badge variant={task.completed ? "default" : "secondary"} className="text-xs">
+                                                      {task.completed ? "已完成" : "进行中"}
+                                                    </Badge>
+                                                  </div>
+                                              ) : null;
+                                            })}
+                                          </div>
+                                        </div>
+                                    )}
 
                                     {team.score && (
                                         <div className="flex items-center space-x-2">
@@ -1072,6 +1182,7 @@ export default function TrainingProjectsPage() {
                               </div>
                             </DialogContent>
                           </Dialog>
+
                       )}
                     </div>
                   </CardHeader>
@@ -1080,6 +1191,7 @@ export default function TrainingProjectsPage() {
                       {selectedProject.tasks.map((task) => {
                         const isMyTask = task.assignedTo?.includes(user.id)
                         const mySubmission = task.submissions?.find(sub => sub.userId === user.id)
+                        const isTeamLeader = userTeam?.leader === user.id
 
                         return (
                             <div
@@ -1164,67 +1276,80 @@ export default function TrainingProjectsPage() {
                                           </div>
                                       ) : (
                                           <div className="flex items-center space-x-2">
-                                            <Dialog open={showSubmitTask} onOpenChange={setShowSubmitTask}>
-                                              <DialogTrigger asChild>
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    onClick={() => {
-                                                      setCurrentTaskForSubmission(task)
-                                                      setShowSubmitTask(true)
-                                                    }}
-                                                >
-                                                  <FileText className="w-4 h-4 mr-1" />
-                                                  提交任务
-                                                </Button>
-                                              </DialogTrigger>
-                                              <DialogContent>
-                                                <DialogHeader>
-                                                  <DialogTitle>提交任务: {currentTaskForSubmission?.title}</DialogTitle>
-                                                  <DialogDescription>请填写任务完成情况</DialogDescription>
-                                                </DialogHeader>
-                                                <div className="space-y-4">
-                                                  <div>
-                                                    <Label htmlFor="submissionContent">任务完成说明</Label>
-                                                    <Textarea
-                                                        id="submissionContent"
-                                                        value={newSubmission.content}
-                                                        onChange={(e) => setNewSubmission({ ...newSubmission, content: e.target.value })}
-                                                        placeholder="描述你的任务完成情况..."
-                                                        rows={4}
-                                                    />
-                                                  </div>
-                                                  <div>
-                                                    <Label htmlFor="submissionAttachments">上传附件</Label>
-                                                    <Input
-                                                        id="submissionAttachments"
-                                                        type="file"
-                                                        multiple
-                                                        className="mt-1"
-                                                        onChange={(e) => {
-                                                          if (e.target.files) {
-                                                            const files = Array.from(e.target.files).map(file => URL.createObjectURL(file))
-                                                            setNewSubmission({ ...newSubmission, attachments: files })
-                                                          }
+                                            {isTeamLeader && (
+                                                <Dialog open={showSubmitTask} onOpenChange={setShowSubmitTask}>
+                                                  <DialogTrigger asChild>
+                                                    <Button
+                                                        size="sm"
+                                                        variant="outline"
+                                                        onClick={() => {
+                                                          setCurrentTaskForSubmission(task)
+                                                          setShowSubmitTask(true)
                                                         }}
-                                                    />
-                                                    <p className="text-xs text-gray-500 mt-1">支持PDF、Word、图片等格式</p>
-                                                  </div>
-                                                  <Button onClick={handleSubmitTask} className="w-full">
-                                                    提交任务
-                                                  </Button>
-                                                </div>
-                                              </DialogContent>
-                                            </Dialog>
+                                                    >
+                                                      <FileText className="w-4 h-4 mr-1" />
+                                                      提交任务
+                                                    </Button>
+                                                  </DialogTrigger>
+                                                  <DialogContent>
+                                                    <DialogHeader>
+                                                      <DialogTitle>提交任务: {currentTaskForSubmission?.title}</DialogTitle>
+                                                      <DialogDescription>请填写任务完成情况</DialogDescription>
+                                                    </DialogHeader>
+                                                    <div className="space-y-4">
+                                                      <div>
+                                                        <Label htmlFor="submissionContent">任务完成说明</Label>
+                                                        <Textarea
+                                                            id="submissionContent"
+                                                            value={newSubmission.content}
+                                                            onChange={(e) => setNewSubmission({ ...newSubmission, content: e.target.value })}
+                                                            placeholder="描述你的任务完成情况..."
+                                                            rows={4}
+                                                        />
+                                                      </div>
+                                                      <div>
+                                                        <Label htmlFor="submissionAttachments">上传附件</Label>
+                                                        <Input
+                                                            id="submissionAttachments"
+                                                            type="file"
+                                                            multiple
+                                                            className="mt-1"
+                                                            onChange={(e) => {
+                                                              if (e.target.files) {
+                                                                const files = Array.from(e.target.files).map(file => URL.createObjectURL(file))
+                                                                setNewSubmission({ ...newSubmission, attachments: files })
+                                                              }
+                                                            }}
+                                                        />
+                                                        <p className="text-xs text-gray-500 mt-1">支持PDF、Word、图片等格式</p>
+                                                      </div>
+                                                      <Button onClick={handleSubmitTask} className="w-full">
+                                                        提交任务
+                                                      </Button>
+                                                    </div>
+                                                  </DialogContent>
+                                                </Dialog>
+                                            )}
                                             <span className="text-xs text-red-600">未提交</span>
                                           </div>
                                       )}
                                     </div>
                                 )}
                               </div>
-                              <Badge variant={task.completed ? "default" : "secondary"}>
-                                {task.completed ? "已完成" : "进行中"}
-                              </Badge>
+                              <div className="flex flex-col items-end space-y-2">
+                                <Badge variant={task.completed ? "default" : "secondary"}>
+                                  {task.completed ? "已完成" : "进行中"}
+                                </Badge>
+                                {user.role === "teacher" && (
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        onClick={() => openEditTaskDialog(task)}
+                                    >
+                                      <Edit className="w-4 h-4" />
+                                    </Button>
+                                )}
+                              </div>
                             </div>
                         )
                       })}
@@ -1237,6 +1362,95 @@ export default function TrainingProjectsPage() {
                       )}
                     </div>
                   </CardContent>
+                  // 在任务列表的Card组件内部，在创建任务的Dialog之后添加编辑任务的Dialog
+                  {/* 编辑任务弹窗 */}
+                  <Dialog open={showEditTask} onOpenChange={setShowEditTask}>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>编辑任务</DialogTitle>
+                        <DialogDescription>修改任务信息</DialogDescription>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div>
+                          <Label htmlFor="editTaskTitle">任务标题</Label>
+                          <Input
+                              id="editTaskTitle"
+                              value={editTask.title}
+                              onChange={(e) => setEditTask({ ...editTask, title: e.target.value })}
+                              placeholder="输入任务标题"
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor="editTaskDescription">任务描述</Label>
+                          <Textarea
+                              id="editTaskDescription"
+                              value={editTask.description}
+                              onChange={(e) => setEditTask({ ...editTask, description: e.target.value })}
+                              placeholder="输入任务详细描述"
+                              rows={3}
+                          />
+                        </div>
+                        <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <Label htmlFor="editTaskDueDate">截止日期</Label>
+                            <Input
+                                id="editTaskDueDate"
+                                type="date"
+                                value={editTask.dueDate}
+                                onChange={(e) => setEditTask({ ...editTask, dueDate: e.target.value })}
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="editTaskPriority">优先级</Label>
+                            <select
+                                id="editTaskPriority"
+                                value={editTask.priority}
+                                onChange={(e) => setEditTask({ ...editTask, priority: e.target.value as any })}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                            >
+                              <option value="high">高优先级</option>
+                              <option value="medium">中优先级</option>
+                              <option value="low">低优先级</option>
+                            </select>
+                          </div>
+                        </div>
+                        {/* 分配成员部分 */}
+                        <div>
+                          <Label>分配成员</Label>
+                          <div className="mt-1 space-y-2 max-h-40 overflow-y-auto p-2 border rounded-md">
+                            {classMembers.map((member) => (
+                                <div key={member.id} className="flex items-center space-x-2">
+                                  <input
+                                      type="checkbox"
+                                      id={`edit-assign-${member.id}`}
+                                      checked={editTask.assignedTo.includes(member.id)}
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          setEditTask({
+                                            ...editTask,
+                                            assignedTo: [...editTask.assignedTo, member.id]
+                                          })
+                                        } else {
+                                          setEditTask({
+                                            ...editTask,
+                                            assignedTo: editTask.assignedTo.filter(id => id !== member.id)
+                                          })
+                                        }
+                                      }}
+                                  />
+                                  <label htmlFor={`edit-assign-${member.id}`} className="text-sm">
+                                    {member.name}
+                                  </label>
+                                </div>
+                            ))}
+                          </div>
+                        </div>
+                        <Button onClick={handleEditTask} className="w-full">
+                          保存更改
+                        </Button>
+                      </div>
+                    </DialogContent>
+                  </Dialog>
                 </Card>
               </TabsContent>
 
@@ -1335,7 +1549,7 @@ export default function TrainingProjectsPage() {
             </Tabs>
           </div>
         </div>
-    )
+  )
   }
 
   return (
@@ -1418,93 +1632,6 @@ export default function TrainingProjectsPage() {
                             <option value="中级">中级</option>
                             <option value="高级">高级</option>
                           </select>
-                        </div>
-                      </div>
-
-                      <div className="pt-4 border-t border-gray-200">
-                        <div className="flex justify-between items-center mb-4">
-                          <h3 className="font-medium">项目任务</h3>
-                          <Button
-                              type="button"
-                              size="sm"
-                              variant="outline"
-                              onClick={addTaskToProject}
-                          >
-                            <Plus className="w-4 h-4 mr-1" />
-                            添加任务
-                          </Button>
-                        </div>
-
-                        <div className="space-y-4">
-                          {newProject.tasks.map((task, index) => (
-                              <div key={index} className="border rounded-lg p-4 bg-gray-50">
-                                <div className="flex justify-between items-start mb-3">
-                                  <span className="font-medium">任务 #{index + 1}</span>
-                                  <Button
-                                      type="button"
-                                      variant="ghost"
-                                      size="icon"
-                                      onClick={() => removeTaskFromProject(index)}
-                                  >
-                                    <Trash2 className="w-4 h-4 text-red-500" />
-                                  </Button>
-                                </div>
-
-                                <div className="space-y-3">
-                                  <div>
-                                    <Label htmlFor={`taskTitle-${index}`}>任务标题</Label>
-                                    <Input
-                                        id={`taskTitle-${index}`}
-                                        value={task.title}
-                                        onChange={(e) => updateTaskInProject(index, "title", e.target.value)}
-                                        placeholder="输入任务标题"
-                                    />
-                                  </div>
-
-                                  <div>
-                                    <Label htmlFor={`taskDescription-${index}`}>任务描述</Label>
-                                    <Textarea
-                                        id={`taskDescription-${index}`}
-                                        value={task.description}
-                                        onChange={(e) => updateTaskInProject(index, "description", e.target.value)}
-                                        placeholder="输入任务详细描述"
-                                        rows={2}
-                                    />
-                                  </div>
-
-                                  <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                      <Label htmlFor={`taskDueDate-${index}`}>截止日期</Label>
-                                      <Input
-                                          id={`taskDueDate-${index}`}
-                                          type="date"
-                                          value={task.dueDate}
-                                          onChange={(e) => updateTaskInProject(index, "dueDate", e.target.value)}
-                                      />
-                                    </div>
-                                    <div>
-                                      <Label htmlFor={`taskPriority-${index}`}>优先级</Label>
-                                      <select
-                                          id={`taskPriority-${index}`}
-                                          value={task.priority}
-                                          onChange={(e) => updateTaskInProject(index, "priority", e.target.value)}
-                                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                                      >
-                                        <option value="high">高优先级</option>
-                                        <option value="medium">中优先级</option>
-                                        <option value="low">低优先级</option>
-                                      </select>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                          ))}
-
-                          {newProject.tasks.length === 0 && (
-                              <div className="text-center py-4 text-gray-500 border-2 border-dashed rounded-lg">
-                                <p>暂无任务，点击"添加任务"按钮创建</p>
-                              </div>
-                          )}
                         </div>
                       </div>
                     </div>
