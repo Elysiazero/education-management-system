@@ -352,7 +352,10 @@ export default function HomePage() {
 
               <NotificationCenter userId={user.id} />
 
-              <div className="flex items-center space-x-3">
+              <div
+                  className="flex items-center space-x-3 cursor-pointer"
+                  onClick={() => router.push("/profile")}
+              >
                 <Avatar>
                   <AvatarImage src={user.avatar || "/placeholder.svg"} />
                   <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>

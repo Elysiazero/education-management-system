@@ -35,6 +35,7 @@ import {
   FileText,
   Check,
   Trash2,
+  ChevronDown,
 } from "lucide-react"
 
 
@@ -115,17 +116,17 @@ export default function TrainingProjectsPage() {
   const [showCreateProject, setShowCreateProject] = useState(false)
   const [showCreateTeam, setShowCreateTeam] = useState(false)
   const [showJoinTeam, setShowJoinTeam] = useState(false)
-  const [showCreateTask, setShowCreateTask] = useState(false) // 新增：任务创建弹窗状态
-  const [currentProjectForTask, setCurrentProjectForTask] = useState<Project | null>(null) // 新增：当前操作的项目
-  const [showSubmitTask, setShowSubmitTask] = useState(false) // 新增：任务提交弹窗状态
-  const [currentTaskForSubmission, setCurrentTaskForSubmission] = useState<Task | null>(null) // 新增：当前操作的任务
+  const [showCreateTask, setShowCreateTask] = useState(false)
+  const [currentProjectForTask, setCurrentProjectForTask] = useState<Project | null>(null)
+  const [showSubmitTask, setShowSubmitTask] = useState(false)
+  const [currentTaskForSubmission, setCurrentTaskForSubmission] = useState<Task | null>(null)
   const [newProject, setNewProject] = useState({
     title: "",
     description: "",
     dueDate: "",
     category: "",
     difficulty: "初级" as const,
-    tasks: [] as Array<{ // 新增任务数组
+    tasks: [] as Array<{
       title: string;
       description: string;
       dueDate: string;
@@ -135,21 +136,32 @@ export default function TrainingProjectsPage() {
   const [newTeam, setNewTeam] = useState({
     name: "",
     members: [] as string[],
+    leader: ""
   })
-  const [newTask, setNewTask] = useState({ // 新增：新任务表单状态
+  const [newTask, setNewTask] = useState({
     title: "",
     description: "",
     dueDate: "",
     priority: "medium" as "high" | "medium" | "low",
     assignedTo: [] as string[],
   })
-  const [newSubmission, setNewSubmission] = useState({ // 新增：任务提交表单状态
+  const [newSubmission, setNewSubmission] = useState({
     content: "",
     attachments: [] as string[],
   })
   const [comments, setComments] = useState<Comment[]>([]);
   const [newCommentContent, setNewCommentContent] = useState('');
   const router = useRouter()
+
+  // 班级成员数据（模拟）
+  const [classMembers, setClassMembers] = useState<User[]>([
+    { id: "stu1", name: "张三", email: "zhangsan@example.com", role: "student" },
+    { id: "stu2", name: "李四", email: "lisi@example.com", role: "student" },
+    { id: "stu3", name: "王五", email: "wangwu@example.com", role: "student" },
+    { id: "stu4", name: "赵六", email: "zhaoliu@example.com", role: "student" },
+    { id: "stu5", name: "钱七", email: "qianqi@example.com", role: "student" },
+    { id: "stu6", name: "孙八", email: "sunba@example.com", role: "student" },
+  ]);
 
   const handleAddComment = () => {
     if (!newCommentContent.trim() || !user) return;
@@ -191,7 +203,7 @@ export default function TrainingProjectsPage() {
           {
             id: "t1",
             name: "前端开发组",
-            members: [currentUser.id, "张三", "李四"], // 确保当前用户在团队中
+            members: [currentUser.id, "stu1", "stu2"],
             progress: 70,
             leader: currentUser.id,
             createdAt: "2024-01-05",
@@ -201,18 +213,10 @@ export default function TrainingProjectsPage() {
           {
             id: "t2",
             name: "后端架构组",
-            members: ["王五", "赵六"],
+            members: ["stu3", "stu4"],
             progress: 60,
-            leader: "王五",
+            leader: "stu3",
             createdAt: "2024-01-06",
-          },
-          {
-            id: "t6",
-            name: "全栈开发组",
-            members: ["钱七", "孙八", "周九", "吴十"],
-            progress: 55,
-            leader: "钱七",
-            createdAt: "2024-01-08",
           },
         ],
         tasks: [
@@ -222,7 +226,7 @@ export default function TrainingProjectsPage() {
             description: "完成项目需求分析文档和UI原型设计",
             completed: true,
             dueDate: "2024-01-10",
-            assignedTo: [currentUser.id, "张三"],
+            assignedTo: [currentUser.id, "stu1"],
             priority: "high",
             submissions: []
           },
@@ -232,38 +236,8 @@ export default function TrainingProjectsPage() {
             description: "设计数据库结构和API接口",
             completed: true,
             dueDate: "2024-01-15",
-            assignedTo: ["王五", "赵六"],
+            assignedTo: ["stu3", "stu4"],
             priority: "high",
-            submissions: []
-          },
-          {
-            id: "task3",
-            title: "前端界面开发",
-            description: "实现响应式用户界面",
-            completed: false,
-            dueDate: "2024-02-01",
-            assignedTo: [currentUser.id, "李四"],
-            priority: "medium",
-            submissions: []
-          },
-          {
-            id: "task4",
-            title: "后端API开发",
-            description: "实现RESTful API接口",
-            completed: false,
-            dueDate: "2024-02-05",
-            assignedTo: ["王五"],
-            priority: "high",
-            submissions: []
-          },
-          {
-            id: "task5",
-            title: "系统集成测试",
-            description: "进行前后端集成测试",
-            completed: false,
-            dueDate: "2024-02-10",
-            assignedTo: ["张三", "赵六"],
-            priority: "medium",
             submissions: []
           },
         ],
@@ -300,164 +274,20 @@ export default function TrainingProjectsPage() {
           {
             id: "t3",
             name: "数据建模组",
-            members: ["陈一", "林二", "黄三"],
+            members: [currentUser.id, "stu5"],
             progress: 35,
-            leader: "陈一",
-            createdAt: "2024-01-10",
-          },
-          {
-            id: "t7",
-            name: "性能优化组",
-            members: [currentUser.id, "郑四"], // 当前用户也参与这个项目
-            progress: 25,
             leader: currentUser.id,
-            createdAt: "2024-01-12",
+            createdAt: "2024-01-10",
           },
         ],
         tasks: [
           {
-            id: "task6",
+            id: "task3",
             title: "ER图设计",
             description: "绘制完整的实体关系图",
             completed: false,
             dueDate: "2024-01-20",
-            assignedTo: ["陈一", "林二"],
-            priority: "high",
-            submissions: []
-          },
-          {
-            id: "task7",
-            title: "数据库表结构设计",
-            description: "设计详细的表结构和约束",
-            completed: false,
-            dueDate: "2024-01-25",
-            assignedTo: ["黄三"],
-            priority: "high",
-            submissions: []
-          },
-          {
-            id: "task8",
-            title: "索引策略设计",
-            description: "制定数据库索引优化策略",
-            completed: false,
-            dueDate: "2024-02-01",
-            assignedTo: [currentUser.id, "郑四"],
-            priority: "medium",
-            submissions: []
-          },
-        ],
-        discussions: [],
-      },
-      {
-        id: "3",
-        title: "移动应用开发项目",
-        description: "开发一个跨平台的移动学习应用，支持在线课程、作业提交、成绩查询等功能",
-        status: "active",
-        progress: 45,
-        dueDate: "2024-04-01",
-        createdBy: "teacher2",
-        category: "移动开发",
-        difficulty: "高级",
-        skills: ["React Native", "Flutter", "移动UI", "API集成"],
-        teams: [
-          {
-            id: "t4",
-            name: "UI设计组",
-            members: ["何五", "许六", "邓七"],
-            progress: 50,
-            leader: "何五",
-            createdAt: "2024-01-15",
-            score: 78,
-            feedback: "设计创意不错，但需要更多考虑用户体验",
-          },
-          {
-            id: "t5",
-            name: "功能开发组",
-            members: ["冯八", "唐九"],
-            progress: 40,
-            leader: "冯八",
-            createdAt: "2024-01-16",
-          },
-          {
-            id: "t8",
-            name: "测试优化组",
-            members: ["韩十", "曹十一", "严十二"],
-            progress: 35,
-            leader: "韩十",
-            createdAt: "2024-01-18",
-          },
-        ],
-        tasks: [
-          {
-            id: "task9",
-            title: "应用原型设计",
-            description: "设计移动应用的交互原型",
-            completed: true,
-            dueDate: "2024-01-25",
-            assignedTo: ["何五", "许六"],
-            priority: "high",
-            submissions: []
-          },
-          {
-            id: "task10",
-            title: "核心功能开发",
-            description: "实现课程浏览和作业提交功能",
-            completed: false,
-            dueDate: "2024-02-15",
-            assignedTo: ["冯八", "唐九"],
-            priority: "high",
-            submissions: []
-          },
-        ],
-        discussions: [],
-      },
-      {
-        id: "4",
-        title: "人工智能应用开发",
-        description: "基于机器学习技术开发智能推荐系统，实现个性化学习内容推荐",
-        status: "active",
-        progress: 20,
-        dueDate: "2024-05-01",
-        createdBy: "teacher3",
-        category: "人工智能",
-        difficulty: "高级",
-        skills: ["Python", "机器学习", "数据分析", "算法"],
-        teams: [
-          {
-            id: "t9",
-            name: "算法研究组",
-            members: ["沈十三", "韩十四", "杨十五"],
-            progress: 25,
-            leader: "沈十三",
-            createdAt: "2024-01-20",
-          },
-          {
-            id: "t10",
-            name: "数据处理组",
-            members: ["朱十六", "秦十七"],
-            progress: 15,
-            leader: "朱十六",
-            createdAt: "2024-01-22",
-          },
-        ],
-        tasks: [
-          {
-            id: "task11",
-            title: "数据收集与预处理",
-            description: "收集并清洗训练数据",
-            completed: false,
-            dueDate: "2024-02-10",
-            assignedTo: ["朱十六", "秦十七"],
-            priority: "high",
-            submissions: []
-          },
-          {
-            id: "task12",
-            title: "推荐算法设计",
-            description: "设计并实现推荐算法",
-            completed: false,
-            dueDate: "2024-03-01",
-            assignedTo: ["沈十三", "韩十四"],
+            assignedTo: [currentUser.id, "stu5"],
             priority: "high",
             submissions: []
           },
@@ -472,7 +302,6 @@ export default function TrainingProjectsPage() {
       const studentProjects = allProjects.filter((project) =>
           project.teams.some((team) => team.members.includes(currentUser.id)),
       )
-      console.log("Student projects:", studentProjects) // 调试用
       setProjects(studentProjects)
     } else {
       // 教师和管理员可以看到所有项目
@@ -526,9 +355,9 @@ export default function TrainingProjectsPage() {
     const team: Team = {
       id: Date.now().toString(),
       name: newTeam.name,
-      members: user.role === "student" ? [user.id] : newTeam.members,
+      members: newTeam.members,
       progress: 0,
-      leader: user.role === "student" ? user.id : newTeam.members[0],
+      leader: newTeam.leader,
       createdAt: new Date().toISOString().split("T")[0],
     }
 
@@ -539,7 +368,7 @@ export default function TrainingProjectsPage() {
 
     setProjects(projects.map((p) => (p.id === selectedProject.id ? updatedProject : p)))
     setSelectedProject(updatedProject)
-    setNewTeam({ name: "", members: [] })
+    setNewTeam({ name: "", members: [], leader: "" })
     setShowCreateTeam(false)
   }
 
@@ -558,7 +387,6 @@ export default function TrainingProjectsPage() {
     setShowJoinTeam(false)
   }
 
-  // 新增：创建新任务
   const handleCreateTask = () => {
     if (!currentProjectForTask || !user) return
 
@@ -596,7 +424,6 @@ export default function TrainingProjectsPage() {
     setCurrentProjectForTask(null)
   }
 
-  // 新增：提交任务
   const handleSubmitTask = () => {
     if (!currentTaskForSubmission || !user || !selectedProject) return
 
@@ -632,7 +459,6 @@ export default function TrainingProjectsPage() {
     setCurrentTaskForSubmission(null)
   }
 
-  // 新增：标记任务为完成
   const handleCompleteTask = (taskId: string) => {
     if (!selectedProject || !user) return
 
@@ -655,7 +481,6 @@ export default function TrainingProjectsPage() {
     setSelectedProject(updatedProject)
   }
 
-  // 新增：添加任务到项目表单
   const addTaskToProject = () => {
     setNewProject({
       ...newProject,
@@ -671,7 +496,6 @@ export default function TrainingProjectsPage() {
     });
   };
 
-  // 新增：从项目表单中移除任务
   const removeTaskFromProject = (index: number) => {
     const updatedTasks = [...newProject.tasks];
     updatedTasks.splice(index, 1);
@@ -681,7 +505,6 @@ export default function TrainingProjectsPage() {
     });
   };
 
-  // 新增：更新项目表单中的任务
   const updateTaskInProject = (index: number, field: string, value: string) => {
     const updatedTasks = [...newProject.tasks];
     updatedTasks[index] = {
@@ -995,71 +818,6 @@ export default function TrainingProjectsPage() {
                   <div className="flex justify-between items-center">
                     <h2 className="text-xl font-semibold">团队管理</h2>
                     <div className="flex space-x-2">
-                      {user.role === "student" && !userTeam && (
-                          <>
-                            <Dialog open={showJoinTeam} onOpenChange={setShowJoinTeam}>
-                              <DialogTrigger asChild>
-                                <Button variant="outline">
-                                  <UserCheck className="w-4 h-4 mr-2" />
-                                  加入团队
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent>
-                                <DialogHeader>
-                                  <DialogTitle>加入团队</DialogTitle>
-                                  <DialogDescription>选择一个团队加入</DialogDescription>
-                                </DialogHeader>
-                                <div className="space-y-4">
-                                  {selectedProject.teams
-                                      .filter((team) => canJoinTeam(team))
-                                      .map((team) => (
-                                          <div
-                                              key={team.id}
-                                              className="flex items-center justify-between p-3 border rounded-lg"
-                                          >
-                                            <div>
-                                              <h4 className="font-medium">{team.name}</h4>
-                                              <p className="text-sm text-gray-500">成员: {team.members.length}/4</p>
-                                              <p className="text-sm text-gray-500">进度: {team.progress}%</p>
-                                            </div>
-                                            <Button size="sm" onClick={() => handleJoinTeam(team.id)}>
-                                              加入
-                                            </Button>
-                                          </div>
-                                      ))}
-                                </div>
-                              </DialogContent>
-                            </Dialog>
-                            <Dialog open={showCreateTeam} onOpenChange={setShowCreateTeam}>
-                              <DialogTrigger asChild>
-                                <Button>
-                                  <Plus className="w-4 h-4 mr-2" />
-                                  创建团队
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent>
-                                <DialogHeader>
-                                  <DialogTitle>创建新团队</DialogTitle>
-                                  <DialogDescription>为项目创建一个新的团队</DialogDescription>
-                                </DialogHeader>
-                                <div className="space-y-4">
-                                  <div>
-                                    <Label htmlFor="teamName">团队名称</Label>
-                                    <Input
-                                        id="teamName"
-                                        value={newTeam.name}
-                                        onChange={(e) => setNewTeam({ ...newTeam, name: e.target.value })}
-                                        placeholder="输入团队名称"
-                                    />
-                                  </div>
-                                  <Button onClick={handleCreateTeam} className="w-full">
-                                    创建团队
-                                  </Button>
-                                </div>
-                              </DialogContent>
-                            </Dialog>
-                          </>
-                      )}
                       {user.role === "teacher" && (
                           <Dialog open={showCreateTeam} onOpenChange={setShowCreateTeam}>
                             <DialogTrigger asChild>
@@ -1068,7 +826,7 @@ export default function TrainingProjectsPage() {
                                 创建团队
                               </Button>
                             </DialogTrigger>
-                            <DialogContent>
+                            <DialogContent className="max-w-md">
                               <DialogHeader>
                                 <DialogTitle>创建新团队</DialogTitle>
                                 <DialogDescription>为项目创建一个新的团队</DialogDescription>
@@ -1083,7 +841,64 @@ export default function TrainingProjectsPage() {
                                       placeholder="输入团队名称"
                                   />
                                 </div>
-                                <Button onClick={handleCreateTeam} className="w-full">
+
+                                <div>
+                                  <Label>团队成员</Label>
+                                  <div className="mt-1 space-y-2">
+                                    {classMembers.map((member) => (
+                                        <div key={member.id} className="flex items-center space-x-2">
+                                          <input
+                                              type="checkbox"
+                                              id={`member-${member.id}`}
+                                              checked={newTeam.members.includes(member.id)}
+                                              onChange={(e) => {
+                                                if (e.target.checked) {
+                                                  setNewTeam({
+                                                    ...newTeam,
+                                                    members: [...newTeam.members, member.id]
+                                                  })
+                                                } else {
+                                                  setNewTeam({
+                                                    ...newTeam,
+                                                    members: newTeam.members.filter(id => id !== member.id)
+                                                  })
+                                                }
+                                              }}
+                                          />
+                                          <label htmlFor={`member-${member.id}`} className="text-sm">
+                                            {member.name}
+                                          </label>
+                                        </div>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <Label htmlFor="teamLeader">团队组长</Label>
+                                  <select
+                                      id="teamLeader"
+                                      value={newTeam.leader}
+                                      onChange={(e) => setNewTeam({ ...newTeam, leader: e.target.value })}
+                                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                      disabled={newTeam.members.length === 0}
+                                  >
+                                    <option value="">请选择团队组长</option>
+                                    {newTeam.members.map((memberId) => {
+                                      const member = classMembers.find(m => m.id === memberId);
+                                      return member ? (
+                                          <option key={memberId} value={memberId}>
+                                            {member.name}
+                                          </option>
+                                      ) : null;
+                                    })}
+                                  </select>
+                                </div>
+
+                                <Button
+                                    onClick={handleCreateTeam}
+                                    className="w-full"
+                                    disabled={!newTeam.name || newTeam.members.length === 0 || !newTeam.leader}
+                                >
                                   创建团队
                                 </Button>
                               </div>
@@ -1094,108 +909,94 @@ export default function TrainingProjectsPage() {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {selectedProject.teams.map((team) => {
-                      const isMyTeam = user && team.members.includes(user.id)
-                      return (
-                          <Card key={team.id} className={isMyTeam ? "ring-2 ring-blue-500 bg-blue-50/30" : ""}>
-                            <CardHeader>
-                              <CardTitle className="flex items-center justify-between">
-                                <div className="flex items-center">
-                                  {team.name}
-                                  {isMyTeam && (
-                                      <Badge className="ml-2" variant="default">
-                                        我的团队
-                                      </Badge>
-                                  )}
-                                </div>
-                                <Badge variant="outline">
-                                  <Users className="w-3 h-3 mr-1" />
-                                  {team.members.length}/4
-                                </Badge>
-                              </CardTitle>
-                              <CardDescription>创建于 {team.createdAt}</CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                              <div className="space-y-4">
-                                <div>
-                                  <div className="flex justify-between text-sm mb-2">
-                                    <span>团队进度</span>
-                                    <span>{team.progress}%</span>
-                                  </div>
-                                  <Progress value={team.progress} />
-                                </div>
+                    {selectedProject.teams
+                        .filter(team => user.role === "teacher" || team.members.includes(user.id))
+                        .map((team) => {
+                          const isMyTeam = user && team.members.includes(user.id)
+                          return (
+                              <Card key={team.id} className={isMyTeam ? "ring-2 ring-blue-500 bg-blue-50/30" : ""}>
+                                <CardHeader>
+                                  <CardTitle className="flex items-center justify-between">
+                                    <div className="flex items-center">
+                                      {team.name}
+                                      {isMyTeam && (
+                                          <Badge className="ml-2" variant="default">
+                                            我的团队
+                                          </Badge>
+                                      )}
+                                    </div>
+                                    <Badge variant="outline">
+                                      <Users className="w-3 h-3 mr-1" />
+                                      {team.members.length}/4
+                                    </Badge>
+                                  </CardTitle>
+                                  <CardDescription>创建于 {team.createdAt}</CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                  <div className="space-y-4">
+                                    <div>
+                                      <div className="flex justify-between text-sm mb-2">
+                                        <span>团队进度</span>
+                                        <span>{team.progress}%</span>
+                                      </div>
+                                      <Progress value={team.progress} />
+                                    </div>
 
-                                {team.leader && (
-                                    <div className="text-sm">
-                                      <span className="font-medium">团队组长:</span>
-                                      <span className="ml-2 text-blue-600">
+                                    {team.leader && (
+                                        <div className="text-sm">
+                                          <span className="font-medium">团队组长:</span>
+                                          <span className="ml-2 text-blue-600">
                                   {team.leader === user.id ? "我" : team.leader}
                                 </span>
-                                    </div>
-                                )}
-
-                                <div>
-                                  <p className="text-sm font-medium mb-2">团队成员 ({team.members.length}/4)</p>
-                                  <div className="space-y-1">
-                                    {team.members.map((member, index) => (
-                                        <div key={index} className="flex items-center space-x-2 text-sm">
-                                          <Avatar className="w-6 h-6">
-                                            <AvatarFallback className="text-xs">
-                                              {(member === user.id ? user.name : member).charAt(0).toUpperCase()}
-                                            </AvatarFallback>
-                                          </Avatar>
-                                          <span
-                                              className={member === user.id ? "font-medium text-blue-600" : "text-gray-700"}
-                                          >
-                                      {member === user.id ? `我 (${user.name})` : member}
-                                    </span>
-                                          {team.leader === member && (
-                                              <Badge variant="outline" className="text-xs">
-                                                组长
-                                              </Badge>
-                                          )}
                                         </div>
-                                    ))}
-                                    {team.members.length < 4 && (
-                                        <div className="flex items-center space-x-2 text-sm text-gray-400">
-                                          <div className="w-6 h-6 border-2 border-dashed border-gray-300 rounded-full flex items-center justify-center">
-                                            <Plus className="w-3 h-3" />
-                                          </div>
-                                          <span>还可加入 {4 - team.members.length} 人</span>
+                                    )}
+
+                                    <div>
+                                      <p className="text-sm font-medium mb-2">团队成员 ({team.members.length}/4)</p>
+                                      <div className="space-y-1">
+                                        {team.members.map((member, index) => {
+                                          const memberInfo = classMembers.find(m => m.id === member);
+                                          return (
+                                              <div key={index} className="flex items-center space-x-2 text-sm">
+                                                <Avatar className="w-6 h-6">
+                                                  <AvatarFallback className="text-xs">
+                                                    {memberInfo?.name?.charAt(0).toUpperCase() || "?"}
+                                                  </AvatarFallback>
+                                                </Avatar>
+                                                <span
+                                                    className={member === user.id ? "font-medium text-blue-600" : "text-gray-700"}
+                                                >
+                                      {member === user.id ? `我 (${user.name})` : memberInfo?.name || member}
+                                    </span>
+                                                {team.leader === member && (
+                                                    <Badge variant="outline" className="text-xs">
+                                                      组长
+                                                    </Badge>
+                                                )}
+                                              </div>
+                                          )
+                                        })}
+                                      </div>
+                                    </div>
+
+                                    {team.score && (
+                                        <div className="flex items-center space-x-2">
+                                          <Star className="w-4 h-4 text-yellow-500" />
+                                          <span className="text-sm font-medium">评分: {team.score}/100</span>
+                                        </div>
+                                    )}
+
+                                    {team.feedback && (
+                                        <div className="text-sm text-gray-600">
+                                          <p className="font-medium">教师评语:</p>
+                                          <p className="mt-1">{team.feedback}</p>
                                         </div>
                                     )}
                                   </div>
-                                </div>
-
-                                {team.score && (
-                                    <div className="flex items-center space-x-2">
-                                      <Star className="w-4 h-4 text-yellow-500" />
-                                      <span className="text-sm font-medium">评分: {team.score}/100</span>
-                                    </div>
-                                )}
-
-                                {team.feedback && (
-                                    <div className="text-sm text-gray-600">
-                                      <p className="font-medium">教师评语:</p>
-                                      <p className="mt-1">{team.feedback}</p>
-                                    </div>
-                                )}
-
-                                {user.role === "student" && !isMyTeam && canJoinTeam(team) && (
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="w-full bg-transparent"
-                                        onClick={() => handleJoinTeam(team.id)}
-                                    >
-                                      加入团队
-                                    </Button>
-                                )}
-                              </div>
-                            </CardContent>
-                          </Card>
-                      )
-                    })}
+                                </CardContent>
+                              </Card>
+                          )
+                        })}
                   </div>
                 </div>
               </TabsContent>
@@ -1319,7 +1120,10 @@ export default function TrainingProjectsPage() {
                                       <span>
                                   负责人:{" "}
                                         {task.assignedTo
-                                            .map((assignee) => (assignee === user.id ? "我" : assignee))
+                                            .map((assignee) => {
+                                              const member = classMembers.find(m => m.id === assignee);
+                                              return assignee === user.id ? "我" : member?.name || assignee;
+                                            })
                                             .join(", ")}
                                 </span>
                                   )}
@@ -1397,7 +1201,6 @@ export default function TrainingProjectsPage() {
                                                         type="file"
                                                         multiple
                                                         className="mt-1"
-                                                        // 简化处理，实际应用中需要处理文件上传
                                                         onChange={(e) => {
                                                           if (e.target.files) {
                                                             const files = Array.from(e.target.files).map(file => URL.createObjectURL(file))
@@ -1618,7 +1421,6 @@ export default function TrainingProjectsPage() {
                         </div>
                       </div>
 
-                      {/* 新增：任务添加区域 */}
                       <div className="pt-4 border-t border-gray-200">
                         <div className="flex justify-between items-center mb-4">
                           <h3 className="font-medium">项目任务</h3>

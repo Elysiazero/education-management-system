@@ -30,6 +30,8 @@ import {
   Check,
   ChevronDown,
   X,
+  List,
+  Library,
 } from "lucide-react"
 import {
   Dialog,
@@ -47,6 +49,7 @@ interface User {
   name: string
   email: string
   role: "student" | "teacher" | "admin"
+  classId?: string
 }
 
 interface Experiment {
@@ -62,6 +65,7 @@ interface Experiment {
   thumbnail: string
   tags: string[]
   creator: string // 创建者信息
+  isSystem?: boolean // 是否为系统实验
   assignments?: Assignment[] // 新增：实验任务
 }
 
@@ -69,10 +73,12 @@ interface Assignment {
   id: string
   taskName: string
   className: string
+  classId: string
   startTime: string
   endTime: string
   requirements: string
   status: "未开始" | "进行中" | "已提交" | "已批改"
+  assignedTo: string[] // 被指派的学生ID
   submittedAt?: string
   grade?: number
 }
@@ -96,16 +102,41 @@ export default function VirtualLabPage() {
     duration: 30,
     tags: "",
   })
+  const [isPublishing, setIsPublishing] = useState(false)
+  const [publishedExperiments, setPublishedExperiments] = useState<Experiment[]>([])
 
-  // 修改为支持多个任务的状态
-  const [assignmentsList, setAssignmentsList] = useState([{
+  // 班级和学生数据
+  const [classes] = useState([
+    { id: "class1", name: "高三(1)班", students: ["stu1", "stu2", "stu3"] },
+    { id: "class2", name: "高三(2)班", students: ["stu4", "stu5", "stu6"] },
+    { id: "class3", name: "高二(1)班", students: ["stu7", "stu8", "stu9"] },
+    { id: "class4", name: "高二(2)班", students: ["stu10", "stu11", "stu12"] },
+  ])
+
+  const [students] = useState([
+    { id: "stu1", name: "张三", classId: "class1" },
+    { id: "stu2", name: "李四", classId: "class1" },
+    { id: "stu3", name: "王五", classId: "class1" },
+    { id: "stu4", name: "赵六", classId: "class2" },
+    { id: "stu5", name: "钱七", classId: "class2" },
+    { id: "stu6", name: "孙八", classId: "class2" },
+    { id: "stu7", name: "周九", classId: "class3" },
+    { id: "stu8", name: "吴十", classId: "class3" },
+    { id: "stu9", name: "郑十一", classId: "class3" },
+    { id: "stu10", name: "王十二", classId: "class4" },
+    { id: "stu11", name: "冯十三", classId: "class4" },
+    { id: "stu12", name: "陈十四", classId: "class4" },
+  ])
+
+  // 发布实验表单状态
+  const [newAssignment, setNewAssignment] = useState({
     taskName: "",
-    class: "",
+    classId: "",
+    studentId: "",
     startTime: "",
     endTime: "",
     requirements: ""
-  }])
-  const [currentAssignmentIndex, setCurrentAssignmentIndex] = useState(0)
+  })
 
   const router = useRouter()
 
@@ -126,122 +157,117 @@ export default function VirtualLabPage() {
         title: "化学反应动力学",
         description: "研究化学反应速率与温度、浓度的关系",
         category: "化学",
-        difficulty: 3, // 星级难度
+        difficulty: 3,
         duration: 45,
         rating: 4.5,
         completed: true,
         progress: 100,
         thumbnail: "/placeholder.svg?height=200&width=300",
         tags: ["反应动力学", "温度效应", "浓度影响"],
-        creator: "张教授",
-        assignments: [
-          {
-            id: "a1",
-            taskName: "期中实验作业",
-            className: "高三(1)班",
-            startTime: "2023-10-01T08:00:00",
-            endTime: "2023-10-15T23:59:59",
-            requirements: "完成实验并提交实验报告，报告应包括实验目的、步骤、数据记录和结论。",
-            status: "已批改",
-            submittedAt: "2023-10-14T15:30:00",
-            grade: 92
-          },
-          {
-            id: "a2",
-            taskName: "小组实验任务",
-            className: "高三(3)班",
-            startTime: "2023-10-05T08:00:00",
-            endTime: "2023-10-20T23:59:59",
-            requirements: "以小组形式完成实验，每组3-4人，提交小组报告和个人反思。",
-            status: "进行中"
-          }
-        ]
+        creator: "系统",
+        isSystem: true,
       },
       {
         id: "2",
         title: "光的折射与反射",
         description: "探索光在不同介质中的传播规律",
         category: "物理",
-        difficulty: 2, // 星级难度
+        difficulty: 2,
         duration: 30,
         rating: 4.2,
         completed: false,
         progress: 60,
         thumbnail: "/placeholder.svg?height=200&width=300",
         tags: ["光学", "折射", "反射"],
-        creator: "李教授"
+        creator: "系统",
+        isSystem: true,
       },
       {
         id: "3",
         title: "细胞分裂观察",
         description: "使用显微镜观察细胞分裂的各个阶段",
         category: "生物",
-        difficulty: 5, // 星级难度
+        difficulty: 5,
         duration: 60,
         rating: 4.8,
         completed: false,
         progress: 0,
         thumbnail: "/placeholder.svg?height=200&width=300",
         tags: ["细胞生物学", "显微镜", "分裂"],
-        creator: "王教授",
-        assignments: [
-          {
-            id: "a3",
-            taskName: "细胞生物学实验",
-            className: "高二(2)班",
-            startTime: "2023-10-10T08:00:00",
-            endTime: "2023-10-25T23:59:59",
-            requirements: "观察并记录细胞分裂各阶段特征，提交不少于5张显微镜照片和观察报告。",
-            status: "未开始"
-          }
-        ]
+        creator: "系统",
+        isSystem: true,
       },
       {
         id: "4",
         title: "电路分析实验",
         description: "分析串联和并联电路的电流电压关系",
         category: "物理",
-        difficulty: 3, // 星级难度
+        difficulty: 3,
         duration: 40,
         rating: 4.3,
         completed: false,
         progress: 25,
         thumbnail: "/placeholder.svg?height=200&width=300",
         tags: ["电路", "欧姆定律", "电流"],
-        creator: "赵教授"
+        creator: "张教授",
+        assignments: [
+          {
+            id: "a1",
+            taskName: "期中实验作业",
+            className: "高三(1)班",
+            classId: "class1",
+            startTime: "2023-10-01T08:00:00",
+            endTime: "2023-10-15T23:59:59",
+            requirements: "完成实验并提交实验报告，报告应包括实验目的、步骤、数据记录和结论。",
+            status: "已批改",
+            assignedTo: ["stu1", "stu2", "stu3"],
+            submittedAt: "2023-10-14T15:30:00",
+            grade: 92
+          }
+        ]
       },
       {
         id: "5",
         title: "酸碱滴定实验",
         description: "通过滴定法测定未知溶液的浓度",
         category: "化学",
-        difficulty: 1, // 星级难度
+        difficulty: 1,
         duration: 35,
         rating: 4.1,
         completed: true,
         progress: 100,
         thumbnail: "/placeholder.svg?height=200&width=300",
         tags: ["滴定", "酸碱", "浓度测定"],
-        creator: "张教授"
+        creator: "李教授",
       },
       {
         id: "6",
         title: "DNA提取实验",
         description: "从植物组织中提取DNA并进行电泳分析",
         category: "生物",
-        difficulty: 4, // 星级难度
+        difficulty: 4,
         duration: 90,
         rating: 4.7,
         completed: false,
         progress: 0,
         thumbnail: "/placeholder.svg?height=200&width=300",
         tags: ["DNA", "提取", "电泳"],
-        creator: "孙教授"
+        creator: "王教授",
       },
     ]
 
     setExperiments(mockExperiments)
     setFilteredExperiments(mockExperiments)
+
+    // 对于学生用户，只显示被指派的实验
+    if (parsedUser.role === "student") {
+      const assignedExps = mockExperiments.filter(exp =>
+          exp.assignments?.some(assignment =>
+              assignment.assignedTo.includes(parsedUser.id)
+          )
+      )
+      setPublishedExperiments(assignedExps)
+    }
   }, [router])
 
   useEffect(() => {
@@ -261,7 +287,6 @@ export default function VirtualLabPage() {
     }
 
     if (difficultyFilter !== "all") {
-      // 根据星级难度过滤
       filtered = filtered.filter((exp) => exp.difficulty === parseInt(difficultyFilter))
     }
 
@@ -324,89 +349,55 @@ export default function VirtualLabPage() {
     })
   }
 
-  // 更新为处理多个任务的函数
-  const handleAssignExperiment = () => {
+  // 发布实验
+  const handlePublishExperiment = () => {
     if (!currentExperiment) return
 
-    const updatedExperiments = experiments.map(exp => {
-      if (exp.id === currentExperiment.id) {
-        const newAssignments = assignmentsList.map(assignment => ({
-          id: `a${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
-          taskName: assignment.taskName || currentExperiment.title,
-          className: assignment.class,
-          startTime: assignment.startTime,
-          endTime: assignment.endTime,
-          requirements: assignment.requirements,
-          status: "未开始"
-        }))
+    const assignment: Assignment = {
+      id: `a${Date.now()}`,
+      taskName: newAssignment.taskName || currentExperiment.title,
+      className: classes.find(c => c.id === newAssignment.classId)?.name || "",
+      classId: newAssignment.classId,
+      startTime: newAssignment.startTime,
+      endTime: newAssignment.endTime,
+      requirements: newAssignment.requirements,
+      status: "未开始",
+      assignedTo: newAssignment.studentId ?
+          [newAssignment.studentId] :
+          classes.find(c => c.id === newAssignment.classId)?.students || []
+    }
 
-        return {
-          ...exp,
-          assignments: [
-            ...(exp.assignments || []),
-            ...newAssignments
-          ]
-        }
-      }
-      return exp
-    })
+    // 更新实验的assignments
+    const updatedExperiment = {
+      ...currentExperiment,
+      assignments: [
+        ...(currentExperiment.assignments || []),
+        assignment
+      ]
+    }
+
+    // 更新实验列表
+    const updatedExperiments = experiments.map(exp =>
+        exp.id === currentExperiment.id ? updatedExperiment : exp
+    )
 
     setExperiments(updatedExperiments)
     setFilteredExperiments(updatedExperiments)
 
-    if (selectedExperiment && selectedExperiment.id === currentExperiment.id) {
-      setSelectedExperiment(updatedExperiments.find(e => e.id === currentExperiment.id) || null)
+    // 对于学生用户，更新已发布实验列表
+    if (user?.role === "student") {
+      setPublishedExperiments([...publishedExperiments, updatedExperiment])
     }
 
-    setIsAssigning(false)
-    // 重置任务列表
-    setAssignmentsList([{
+    setIsPublishing(false)
+    setNewAssignment({
       taskName: "",
-      class: "",
+      classId: "",
+      studentId: "",
       startTime: "",
       endTime: "",
       requirements: ""
-    }])
-    setCurrentAssignmentIndex(0)
-  }
-
-  // 添加新任务
-  const addNewAssignment = () => {
-    setAssignmentsList([
-      ...assignmentsList,
-      {
-        taskName: "",
-        class: "",
-        startTime: "",
-        endTime: "",
-        requirements: ""
-      }
-    ])
-    setCurrentAssignmentIndex(assignmentsList.length)
-  }
-
-  // 删除任务
-  const removeAssignment = (index: number) => {
-    if (assignmentsList.length <= 1) return;
-
-    const newList = [...assignmentsList];
-    newList.splice(index, 1);
-    setAssignmentsList(newList);
-
-    // 调整当前索引
-    if (currentAssignmentIndex >= index) {
-      setCurrentAssignmentIndex(Math.max(0, currentAssignmentIndex - 1));
-    }
-  }
-
-  // 更新当前任务的字段
-  const updateCurrentAssignment = (field: string, value: string) => {
-    const newList = [...assignmentsList];
-    newList[currentAssignmentIndex] = {
-      ...newList[currentAssignmentIndex],
-      [field]: value
-    };
-    setAssignmentsList(newList);
+    })
   }
 
   const handleEditExperiment = (experiment: Experiment) => {
@@ -642,151 +633,7 @@ export default function VirtualLabPage() {
                 {(user?.role === "teacher" || user?.role === "admin") ? (
                     <Card className="bg-gray-800 border-gray-700">
                       <CardHeader>
-                        <div className="flex justify-between items-center">
-                          <CardTitle className="text-white text-sm">任务指派</CardTitle>
-                          <Dialog
-                              open={isAssigning}
-                              onOpenChange={setIsAssigning}
-                              onOpen={() => {
-                                setCurrentExperiment(selectedExperiment)
-                                // 初始化任务列表
-                                setAssignmentsList([{
-                                  taskName: "",
-                                  class: "",
-                                  startTime: "",
-                                  endTime: "",
-                                  requirements: ""
-                                }])
-                                setCurrentAssignmentIndex(0)
-                              }}
-                          >
-                            <DialogTrigger asChild>
-                              <Button size="sm">
-                                <Send className="w-4 h-4 mr-1" />
-                                指派任务
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent className="sm:max-w-3xl max-h-[80vh] overflow-y-auto">
-                              <DialogHeader>
-                                <DialogTitle>指派实验任务</DialogTitle>
-                                <p className="text-sm text-gray-500">当前指派实验: {selectedExperiment.title}</p>
-                              </DialogHeader>
-
-                              <div className="flex items-center mb-4">
-                                <Button variant="outline" size="sm" onClick={addNewAssignment}>
-                                  <Plus className="w-4 h-4 mr-1" /> 添加任务
-                                </Button>
-
-                                <div className="ml-4 flex flex-wrap gap-2">
-                                  {assignmentsList.map((_, index) => (
-                                      <div key={index} className="relative">
-                                        <Button
-                                            variant={index === currentAssignmentIndex ? "default" : "outline"}
-                                            size="sm"
-                                            onClick={() => setCurrentAssignmentIndex(index)}
-                                            className="relative"
-                                        >
-                                          任务 {index + 1}
-                                        </Button>
-                                        {assignmentsList.length > 1 && (
-                                            <button
-                                                className="absolute -top-2 -right-2 bg-destructive text-white rounded-full w-5 h-5 flex items-center justify-center text-xs"
-                                                onClick={(e) => {
-                                                  e.stopPropagation();
-                                                  removeAssignment(index);
-                                                }}
-                                            >
-                                              <X className="w-3 h-3" />
-                                            </button>
-                                        )}
-                                      </div>
-                                  ))}
-                                </div>
-                              </div>
-
-                              <div className="grid gap-4 py-4">
-                                <div className="grid grid-cols-4 items-center gap-4">
-                                  <Label htmlFor="taskName" className="text-right">
-                                    任务名称
-                                  </Label>
-                                  <Input
-                                      id="taskName"
-                                      value={assignmentsList[currentAssignmentIndex].taskName || selectedExperiment.title}
-                                      onChange={(e) => updateCurrentAssignment("taskName", e.target.value)}
-                                      className="col-span-3"
-                                  />
-                                </div>
-                                <div className="grid grid-cols-4 items-center gap-4">
-                                  <Label htmlFor="class" className="text-right">
-                                    指派到班级
-                                  </Label>
-                                  <Select
-                                      value={assignmentsList[currentAssignmentIndex].class}
-                                      onValueChange={(value) => updateCurrentAssignment("class", value)}
-                                  >
-                                    <SelectTrigger className="col-span-3">
-                                      <SelectValue placeholder="选择班级" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="class1">高三(1)班</SelectItem>
-                                      <SelectItem value="class2">高三(2)班</SelectItem>
-                                      <SelectItem value="class3">高二(1)班</SelectItem>
-                                      <SelectItem value="class4">高二(2)班</SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                                <div className="grid grid-cols-4 items-center gap-4">
-                                  <Label htmlFor="startTime" className="text-right">
-                                    开始时间
-                                  </Label>
-                                  <Input
-                                      id="startTime"
-                                      type="datetime-local"
-                                      value={assignmentsList[currentAssignmentIndex].startTime}
-                                      onChange={(e) => updateCurrentAssignment("startTime", e.target.value)}
-                                      className="col-span-3"
-                                  />
-                                </div>
-                                <div className="grid grid-cols-4 items-center gap-4">
-                                  <Label htmlFor="endTime" className="text-right">
-                                    截止时间
-                                  </Label>
-                                  <Input
-                                      id="endTime"
-                                      type="datetime-local"
-                                      value={assignmentsList[currentAssignmentIndex].endTime}
-                                      onChange={(e) => updateCurrentAssignment("endTime", e.target.value)}
-                                      className="col-span-3"
-                                  />
-                                </div>
-                                <div className="grid grid-cols-4 items-center gap-4">
-                                  <Label htmlFor="requirements" className="text-right">
-                                    任务要求
-                                  </Label>
-                                  <Textarea
-                                      id="requirements"
-                                      value={assignmentsList[currentAssignmentIndex].requirements}
-                                      onChange={(e) => updateCurrentAssignment("requirements", e.target.value)}
-                                      className="col-span-3"
-                                      rows={3}
-                                      placeholder="输入实验要求或配置参数..."
-                                  />
-                                </div>
-                              </div>
-                              <DialogFooter>
-                                <Button
-                                    variant="outline"
-                                    onClick={() => setIsAssigning(false)}
-                                >
-                                  取消
-                                </Button>
-                                <Button onClick={handleAssignExperiment}>
-                                  确认指派 ({assignmentsList.length}个任务)
-                                </Button>
-                              </DialogFooter>
-                            </DialogContent>
-                          </Dialog>
-                        </div>
+                        <CardTitle className="text-white text-sm">实验任务</CardTitle>
                       </CardHeader>
                       <CardContent>
                         {selectedExperiment.assignments && selectedExperiment.assignments.length > 0 ? (
@@ -1060,21 +907,26 @@ export default function VirtualLabPage() {
             </CardContent>
           </Card>
 
-          <Tabs defaultValue="all" className="space-y-6">
-            <TabsList>
-              <TabsTrigger value="all">全部实验</TabsTrigger>
-              <TabsTrigger value="in-progress">进行中</TabsTrigger>
-              <TabsTrigger value="completed">已完成</TabsTrigger>
-              <TabsTrigger value="favorites">收藏夹</TabsTrigger>
-            </TabsList>
+          <Tabs defaultValue={user?.role === "teacher" ? "library" : "assigned"} className="space-y-6">
+            {user?.role === "teacher" && (
+                <TabsList>
+                  <TabsTrigger value="library">
+                    <Library className="w-4 h-4 mr-2" />
+                    实验库
+                  </TabsTrigger>
+                  <TabsTrigger value="published">
+                    <List className="w-4 h-4 mr-2" />
+                    已发布实验
+                  </TabsTrigger>
+                </TabsList>
+            )}
 
-            <TabsContent value="all">
+            <TabsContent value="library">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filteredExperiments.map((experiment) => (
                     <Card
                         key={experiment.id}
                         className="cursor-pointer hover:shadow-lg transition-shadow relative"
-                        onClick={() => setSelectedExperiment(experiment)}
                     >
                       <div className="aspect-video bg-gray-100 rounded-t-lg overflow-hidden">
                         <img
@@ -1083,9 +935,9 @@ export default function VirtualLabPage() {
                             className="w-full h-full object-cover"
                         />
                         <div className="absolute top-2 right-2">
-                          <Badge variant="secondary" className="flex items-center">
+                          <Badge variant={experiment.isSystem ? "default" : "secondary"} className="flex items-center">
                             {getCategoryIcon(experiment.category)}
-                            <span className="ml-1">{experiment.category}</span>
+                            <span className="ml-1">{experiment.isSystem ? "系统实验" : "自定义实验"}</span>
                           </Badge>
                         </div>
                       </div>
@@ -1135,37 +987,174 @@ export default function VirtualLabPage() {
                           </div>
 
                           {/* 操作按钮 - 根据用户角色显示 */}
-                          {user?.role === "student" ? (
+                          {user?.role === "teacher" ? (
+                              <div className="flex justify-between mt-4">
+                                <Dialog
+                                    open={isPublishing}
+                                    onOpenChange={setIsPublishing}
+                                    onOpen={() => {
+                                      setCurrentExperiment(experiment)
+                                      setNewAssignment({
+                                        taskName: experiment.title,
+                                        classId: "",
+                                        studentId: "",
+                                        startTime: "",
+                                        endTime: "",
+                                        requirements: ""
+                                      })
+                                    }}
+                                >
+                                  <DialogTrigger asChild>
+                                    <Button variant="default" size="sm">
+                                      <Send className="w-4 h-4 mr-1" />
+                                      发布
+                                    </Button>
+                                  </DialogTrigger>
+                                  <DialogContent className="sm:max-w-md">
+                                    <DialogHeader>
+                                      <DialogTitle>发布实验任务</DialogTitle>
+                                      <p className="text-sm text-gray-500">发布实验: {experiment.title}</p>
+                                    </DialogHeader>
+                                    <div className="grid gap-4 py-4">
+                                      <div className="grid grid-cols-4 items-center gap-4">
+                                        <Label htmlFor="taskName" className="text-right">
+                                          任务名称
+                                        </Label>
+                                        <Input
+                                            id="taskName"
+                                            value={newAssignment.taskName}
+                                            onChange={(e) => setNewAssignment({...newAssignment, taskName: e.target.value})}
+                                            className="col-span-3"
+                                            placeholder="输入任务名称"
+                                        />
+                                      </div>
+                                      <div className="grid grid-cols-4 items-center gap-4">
+                                        <Label htmlFor="class" className="text-right">
+                                          指派班级
+                                        </Label>
+                                        <Select
+                                            value={newAssignment.classId}
+                                            onValueChange={(value) => setNewAssignment({...newAssignment, classId: value, studentId: ""})}
+                                        >
+                                          <SelectTrigger className="col-span-3">
+                                            <SelectValue placeholder="选择班级" />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {classes.map(cls => (
+                                                <SelectItem key={cls.id} value={cls.id}>{cls.name}</SelectItem>
+                                            ))}
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                      {newAssignment.classId && (
+                                          <div className="grid grid-cols-4 items-center gap-4">
+                                            <Label htmlFor="student" className="text-right">
+                                              指定学生
+                                            </Label>
+                                            <Select
+                                                value={newAssignment.studentId}
+                                                onValueChange={(value) => setNewAssignment({...newAssignment, studentId: value})}
+                                            >
+                                              <SelectTrigger className="col-span-3">
+                                                <SelectValue placeholder="选择学生 (可选)" />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                <SelectItem value="">全班学生</SelectItem>
+                                                {students
+                                                    .filter(stu => stu.classId === newAssignment.classId)
+                                                    .map(stu => (
+                                                        <SelectItem key={stu.id} value={stu.id}>{stu.name}</SelectItem>
+                                                    ))}
+                                              </SelectContent>
+                                            </Select>
+                                          </div>
+                                      )}
+                                      <div className="grid grid-cols-4 items-center gap-4">
+                                        <Label htmlFor="startTime" className="text-right">
+                                          开始时间
+                                        </Label>
+                                        <Input
+                                            id="startTime"
+                                            type="datetime-local"
+                                            value={newAssignment.startTime}
+                                            onChange={(e) => setNewAssignment({...newAssignment, startTime: e.target.value})}
+                                            className="col-span-3"
+                                        />
+                                      </div>
+                                      <div className="grid grid-cols-4 items-center gap-4">
+                                        <Label htmlFor="endTime" className="text-right">
+                                          截止时间
+                                        </Label>
+                                        <Input
+                                            id="endTime"
+                                            type="datetime-local"
+                                            value={newAssignment.endTime}
+                                            onChange={(e) => setNewAssignment({...newAssignment, endTime: e.target.value})}
+                                            className="col-span-3"
+                                        />
+                                      </div>
+                                      <div className="grid grid-cols-4 items-center gap-4">
+                                        <Label htmlFor="requirements" className="text-right">
+                                          任务要求
+                                        </Label>
+                                        <Textarea
+                                            id="requirements"
+                                            value={newAssignment.requirements}
+                                            onChange={(e) => setNewAssignment({...newAssignment, requirements: e.target.value})}
+                                            className="col-span-3"
+                                            rows={3}
+                                            placeholder="输入实验要求..."
+                                        />
+                                      </div>
+                                    </div>
+                                    <DialogFooter>
+                                      <Button
+                                          variant="outline"
+                                          onClick={() => setIsPublishing(false)}
+                                      >
+                                        取消
+                                      </Button>
+                                      <Button onClick={handlePublishExperiment}>
+                                        发布任务
+                                      </Button>
+                                    </DialogFooter>
+                                  </DialogContent>
+                                </Dialog>
+
+                                {!experiment.isSystem && (
+                                    <>
+                                      <Button
+                                          variant="outline"
+                                          size="sm"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleEditExperiment(experiment);
+                                          }}
+                                      >
+                                        <Edit className="w-4 h-4 mr-1" />
+                                        编辑
+                                      </Button>
+                                      <Button
+                                          variant="destructive"
+                                          size="sm"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleDeleteExperiment(experiment.id);
+                                          }}
+                                      >
+                                        <Trash className="w-4 h-4 mr-1" />
+                                        删除
+                                      </Button>
+                                    </>
+                                )}
+                              </div>
+                          ) : (
                               <Button
                                   className="w-full mt-4"
+                                  onClick={() => setSelectedExperiment(experiment)}
                               >
                                 开始实验
                               </Button>
-                          ) : (
-                              <div className="flex justify-between mt-4">
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleEditExperiment(experiment);
-                                    }}
-                                >
-                                  <Edit className="w-4 h-4 mr-1" />
-                                  编辑
-                                </Button>
-                                <Button
-                                    variant="destructive"
-                                    size="sm"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleDeleteExperiment(experiment.id);
-                                    }}
-                                >
-                                  <Trash className="w-4 h-4 mr-1" />
-                                  删除
-                                </Button>
-                              </div>
                           )}
                         </div>
                       </CardContent>
@@ -1174,105 +1163,159 @@ export default function VirtualLabPage() {
               </div>
             </TabsContent>
 
-            <TabsContent value="in-progress">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredExperiments
-                    .filter((exp) => exp.progress > 0 && exp.progress < 100)
-                    .map((experiment) => (
-                        <Card
-                            key={experiment.id}
-                            className="cursor-pointer hover:shadow-lg transition-shadow"
-                            onClick={() => setSelectedExperiment(experiment)}
-                        >
-                          <div className="aspect-video bg-gray-100 rounded-t-lg overflow-hidden">
-                            <img
-                                src={experiment.thumbnail || "/placeholder.svg"}
-                                alt={experiment.title}
-                                className="w-full h-full object-cover"
-                            />
-                          </div>
-                          <CardHeader>
-                            <CardTitle className="text-lg">{experiment.title}</CardTitle>
-                            <CardDescription className="line-clamp-2">{experiment.description}</CardDescription>
-                            <div className="flex items-center text-sm text-gray-500 mt-2">
-                              <User className="w-4 h-4 mr-1" />
-                              <span>创建者: {experiment.creator}</span>
-                            </div>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="space-y-4">
-                              <div>
-                                <div className="flex justify-between text-sm mb-2">
-                                  <span>进度</span>
-                                  <span>{experiment.progress}%</span>
+            {user?.role === "teacher" && (
+                <TabsContent value="published">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {experiments
+                        .filter(exp => exp.assignments && exp.assignments.length > 0)
+                        .map(experiment => (
+                            <Card key={experiment.id} className="relative">
+                              <div className="aspect-video bg-gray-100 rounded-t-lg overflow-hidden">
+                                <img
+                                    src={experiment.thumbnail || "/placeholder.svg"}
+                                    alt={experiment.title}
+                                    className="w-full h-full object-cover"
+                                />
+                                <div className="absolute top-2 right-2">
+                                  <Badge variant="default" className="flex items-center">
+                                    <Send className="w-3 h-3 mr-1" />
+                                    已发布
+                                  </Badge>
                                 </div>
-                                <Progress value={experiment.progress} />
                               </div>
-                              <Button className="w-full">继续实验</Button>
-                            </div>
-                          </CardContent>
-                        </Card>
-                    ))}
-              </div>
-            </TabsContent>
+                              <CardHeader>
+                                <CardTitle className="text-lg">{experiment.title}</CardTitle>
+                                <CardDescription className="line-clamp-2">{experiment.description}</CardDescription>
+                              </CardHeader>
+                              <CardContent>
+                                <div className="space-y-4">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center space-x-1">
+                                      <Clock className="w-4 h-4 text-gray-500" />
+                                      <span className="text-sm text-gray-600">{experiment.duration} 分钟</span>
+                                    </div>
+                                    <div className="flex items-center space-x-1">
+                                      <Star className="w-4 h-4 text-yellow-400" />
+                                      <span className="text-sm text-gray-600">{experiment.rating}</span>
+                                    </div>
+                                  </div>
 
-            <TabsContent value="completed">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredExperiments
-                    .filter((exp) => exp.completed)
-                    .map((experiment) => (
-                        <Card
-                            key={experiment.id}
-                            className="cursor-pointer hover:shadow-lg transition-shadow relative"
-                            onClick={() => setSelectedExperiment(experiment)}
-                        >
-                          <div className="aspect-video bg-gray-100 rounded-t-lg overflow-hidden relative">
-                            <img
-                                src={experiment.thumbnail || "/placeholder.svg"}
-                                alt={experiment.title}
-                                className="w-full h-full object-cover"
-                            />
-                            <div className="absolute top-2 right-2">
-                              <Badge className="bg-green-600 flex items-center">
-                                <Check className="w-3 h-3 mr-1" />
-                                已完成
-                              </Badge>
-                            </div>
-                          </div>
-                          <CardHeader>
-                            <CardTitle className="text-lg">{experiment.title}</CardTitle>
-                            <CardDescription className="line-clamp-2">{experiment.description}</CardDescription>
-                            <div className="flex items-center text-sm text-gray-500 mt-2">
-                              <User className="w-4 h-4 mr-1" />
-                              <span>创建者: {experiment.creator}</span>
-                            </div>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="space-y-4">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center space-x-1">
-                                  <Star className="w-4 h-4 text-yellow-400" />
-                                  <span className="text-sm text-gray-600">{experiment.rating}</span>
+                                  <div className="mt-3">
+                                    <h4 className="text-sm font-medium mb-2">已发布任务</h4>
+                                    {experiment.assignments?.map(task => (
+                                        <div key={task.id} className="bg-blue-50 p-3 rounded-lg mb-2">
+                                          <div className="flex justify-between">
+                                            <span className="text-sm font-medium">{task.taskName}</span>
+                                            <Badge variant="outline" className="text-xs">
+                                              {task.className}
+                                            </Badge>
+                                          </div>
+                                          <p className="text-xs text-gray-600 mt-1">截止: {new Date(task.endTime).toLocaleString()}</p>
+                                          <div className="mt-2">
+                                            <span className="text-xs text-gray-600">指派给: </span>
+                                            <span className="text-xs">
+                                      {task.assignedTo.length === 1 ?
+                                          students.find(s => s.id === task.assignedTo[0])?.name || "1名学生" :
+                                          `${task.assignedTo.length}名学生`}
+                                    </span>
+                                          </div>
+                                        </div>
+                                    ))}
+                                  </div>
+
+                                  <Button
+                                      variant="outline"
+                                      className="w-full mt-2"
+                                      onClick={() => setSelectedExperiment(experiment)}
+                                  >
+                                    查看详情
+                                  </Button>
                                 </div>
-                                <Badge variant="outline" className="flex items-center">
-                                  <RotateCcw className="w-3 h-3 mr-1" />
-                                  重新实验
-                                </Badge>
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-                    ))}
-              </div>
-            </TabsContent>
+                              </CardContent>
+                            </Card>
+                        ))
+                    }
+                  </div>
+                </TabsContent>
+            )}
 
-            <TabsContent value="favorites">
-              <div className="text-center py-12">
-                <Star className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">暂无收藏的实验</h3>
-                <p className="text-gray-500">点击实验卡片上的星标来收藏您喜欢的实验</p>
-              </div>
-            </TabsContent>
+            {/* 学生看到的已指派实验 */}
+            {user?.role === "student" && (
+                <TabsContent value="assigned">
+                  {publishedExperiments.length === 0 ? (
+                      <div className="text-center py-12">
+                        <List className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                        <h3 className="text-lg font-medium text-gray-900 mb-2">暂无指派实验</h3>
+                        <p className="text-gray-500">等待老师发布实验任务</p>
+                      </div>
+                  ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {publishedExperiments.map((experiment) => {
+                          // 找到当前学生的任务
+                          const studentAssignment = experiment.assignments?.find(a =>
+                              a.assignedTo.includes(user.id)
+                          );
+
+                          return (
+                              <Card
+                                  key={experiment.id}
+                                  className="cursor-pointer hover:shadow-lg transition-shadow relative"
+                                  onClick={() => setSelectedExperiment(experiment)}
+                              >
+                                <div className="aspect-video bg-gray-100 rounded-t-lg overflow-hidden">
+                                  <img
+                                      src={experiment.thumbnail || "/placeholder.svg"}
+                                      alt={experiment.title}
+                                      className="w-full h-full object-cover"
+                                  />
+                                  <div className="absolute top-2 right-2">
+                                    <Badge variant="default" className="flex items-center">
+                                      <Send className="w-3 h-3 mr-1" />
+                                      已指派
+                                    </Badge>
+                                  </div>
+                                </div>
+                                <CardHeader>
+                                  <CardTitle className="text-lg">{experiment.title}</CardTitle>
+                                  <CardDescription className="line-clamp-2">{experiment.description}</CardDescription>
+                                </CardHeader>
+                                <CardContent>
+                                  <div className="space-y-4">
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center space-x-1">
+                                        <Clock className="w-4 h-4 text-gray-500" />
+                                        <span className="text-sm text-gray-600">{experiment.duration} 分钟</span>
+                                      </div>
+                                      <div className="flex items-center space-x-1">
+                                        <Star className="w-4 h-4 text-yellow-400" />
+                                        <span className="text-sm text-gray-600">{experiment.rating}</span>
+                                      </div>
+                                    </div>
+
+                                    {studentAssignment && (
+                                        <div className="mt-3 bg-blue-50 p-3 rounded-lg">
+                                          <div className="flex justify-between">
+                                            <span className="text-sm font-medium">{studentAssignment.taskName}</span>
+                                            <Badge variant={studentAssignment.status === "已批改" ? "default" : "secondary"} className="text-xs">
+                                              {studentAssignment.status}
+                                            </Badge>
+                                          </div>
+                                          <p className="text-xs text-gray-600 mt-1">截止: {new Date(studentAssignment.endTime).toLocaleString()}</p>
+                                        </div>
+                                    )}
+
+                                    <Button className="w-full mt-2">
+                                      开始实验
+                                    </Button>
+                                  </div>
+                                </CardContent>
+                              </Card>
+                          )
+                        })}
+                      </div>
+                  )}
+                </TabsContent>
+            )}
           </Tabs>
         </div>
       </div>
