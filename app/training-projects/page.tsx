@@ -39,561 +39,524 @@ import {
   Edit,
 } from "lucide-react"
 
+// API基础URL配置
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080/api/v1";
 
-interface User {
-  id: string
-  name: string
-  email: string
-  role: "student" | "teacher" | "admin"
-  classId?: string // 添加班级ID
+// 项目状态类型
+type ProjectStatus = "ACTIVE" | "COMPLETED" | "DRAFT";
+
+// 任务优先级类型
+type TaskPriority = "HIGH" | "MEDIUM" | "LOW";
+
+// 任务状态类型
+type TaskStatus = "TODO" | "IN_PROGRESS" | "DONE" | "REVIEW";
+
+// 后端DTO接口定义
+interface UserInfoDTO {
+  id: number;
+  username: string;
+  realName: string;
+  email: string;
+  phoneNumber: string;
+  avatarUrl: string;
 }
 
-interface Project {
-  id: string
-  title: string
-  description: string
-  status: "active" | "completed" | "draft"
-  progress: number
-  dueDate: string
-  createdBy: string
-  teams: Team[]
-  tasks: Task[]
-  discussions: Discussion[]
-  category: string
-  difficulty: "初级" | "中级" | "高级"
-  skills: string[]
+interface ProjectDTO {
+  id: number;
+  title: string;
+  description: string;
+  coverUrl: string;
+  status: ProjectStatus;
+  startDate: string;
+  endDate: string;
+  creator: UserInfoDTO;
+  progress: number;
 }
 
-interface Team {
-  id: string
-  name: string
-  members: string[]
-  progress: number
-  score?: number
-  feedback?: string
-  leader?: string
-  createdAt: string
-  classId?: string
-  assignedTasks: string[] // 团队分配的任务ID
+interface ProjectDetailDTO extends ProjectDTO {
+  tasks: ProjectTaskDTO[];
+  teams: ProjectTeamDTO[];
+  assignedStudents: UserInfoDTO[];
 }
 
-interface Task {
-  id: string
-  title: string
-  description: string
-  completed: boolean
-  dueDate: string
-  assignedTo?: string[]
-  priority: "high" | "medium" | "low"
-  submissions: Submission[] // 学生提交的任务内容
+interface ProjectTaskDTO {
+  id: number;
+  title: string;
+  description: string;
+  status: TaskStatus;
+  assigneeId: number | null;
+  dueDate: string;
+  priority: TaskPriority;
+  submissions: TaskSubmissionDTO[];
 }
 
-interface Submission {
-  id: string
-  userId: string
-  userName: string
-  content: string
-  timestamp: string
-  attachments?: string[]
-}
-
-interface Discussion {
-  id: string
-  author: string
-  content: string
-  timestamp: string
-  replies: Discussion[]
-}
-
-interface Comment {
-  id: string;
-  author: string;
+interface TaskSubmissionDTO {
+  id: number;
+  userId: number;
   content: string;
-  timestamp: string;
+  attachments: string[];
+  submittedAt: string;
 }
 
-interface Class {
-  id: string;
+interface ProjectTeamDTO {
+  id: number;
+  name: string;
+  projectId: number;
+  leaderId: number;
+  members: UserInfoDTO[];
+  progress: number;
+  score: number | null;
+  feedback: string | null;
+}
+
+interface CommentDTO {
+  id: number;
+  authorId: number;
+  content: string;
+  createdAt: string;
+  replies: CommentDTO[];
+}
+
+interface ClassDTO {
+  id: number;
   name: string;
 }
 
 export default function TrainingProjectsPage() {
-  const [user, setUser] = useState<User | null>(null)
-  const [projects, setProjects] = useState<Project[]>([])
-  const [selectedProject, setSelectedProject] = useState<Project | null>(null)
-  const [searchTerm, setSearchTerm] = useState("")
-  const [showCreateProject, setShowCreateProject] = useState(false)
-  const [showCreateTeam, setShowCreateTeam] = useState(false)
-  const [showJoinTeam, setShowJoinTeam] = useState(false)
-  const [showCreateTask, setShowCreateTask] = useState(false)
-  const [showEditTask, setShowEditTask] = useState(false)
-  const [currentProjectForTask, setCurrentProjectForTask] = useState<Project | null>(null)
-  const [showSubmitTask, setShowSubmitTask] = useState(false)
-  const [currentTaskForSubmission, setCurrentTaskForSubmission] = useState<Task | null>(null)
-  const [currentTaskForEdit, setCurrentTaskForEdit] = useState<Task | null>(null)
-  const [newProject, setNewProject] = useState({
-    title: "",
-    description: "",
-    dueDate: "",
-    category: "",
-    difficulty: "初级" as const,
-  })
-  const [newTeam, setNewTeam] = useState({
-    name: "",
-    classId: "",
-    members: [] as string[],
-    leader: "",
-    assignedTasks: [] as string[],
-  })
-  const [newTask, setNewTask] = useState({
-    title: "",
-    description: "",
-    dueDate: "",
-    priority: "medium" as "high" | "medium" | "low",
-    assignedTo: [] as string[],
-  })
-  const [editTask, setEditTask] = useState({
-    id: "",
-    title: "",
-    description: "",
-    dueDate: "",
-    priority: "medium" as "high" | "medium" | "low",
-    assignedTo: [] as string[],
-  })
-  const [newSubmission, setNewSubmission] = useState({
-    content: "",
-    attachments: [] as string[],
-  })
-  const [comments, setComments] = useState<Comment[]>([]);
+  const [user, setUser] = useState<UserInfoDTO | null>(null);
+  const [projects, setProjects] = useState<ProjectDTO[]>([]);
+  const [selectedProject, setSelectedProject] = useState<ProjectDetailDTO | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [showCreateProject, setShowCreateProject] = useState(false);
+  const [showCreateTeam, setShowCreateTeam] = useState(false);
+  const [showCreateTask, setShowCreateTask] = useState(false);
+  const [showEditTask, setShowEditTask] = useState(false);
+  const [showSubmitTask, setShowSubmitTask] = useState(false);
+  const [currentTaskForSubmission, setCurrentTaskForSubmission] = useState<ProjectTaskDTO | null>(null);
+  const [currentTaskForEdit, setCurrentTaskForEdit] = useState<ProjectTaskDTO | null>(null);
+  const [comments, setComments] = useState<CommentDTO[]>([]);
   const [newCommentContent, setNewCommentContent] = useState('');
-  const router = useRouter()
+  const [classes, setClasses] = useState<ClassDTO[]>([]);
+  const [classMembers, setClassMembers] = useState<UserInfoDTO[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  // 班级数据（模拟）
-  const [classes, setClasses] = useState<Class[]>([
-    { id: "class1", name: "计算机科学与技术1班" },
-    { id: "class2", name: "软件工程2班" },
-    { id: "class3", name: "人工智能3班" },
-  ]);
+  const router = useRouter();
 
-  // 班级成员数据（模拟）
-  const [classMembers, setClassMembers] = useState<User[]>([
-    { id: "stu1", name: "张三", email: "zhangsan@example.com", role: "student", classId: "class1" },
-    { id: "stu2", name: "李四", email: "lisi@example.com", role: "student", classId: "class1" },
-    { id: "stu3", name: "王五", email: "wangwu@example.com", role: "student", classId: "class2" },
-    { id: "stu4", name: "赵六", email: "zhaoliu@example.com", role: "student", classId: "class2" },
-    { id: "stu5", name: "钱七", email: "qianqi@example.com", role: "student", classId: "class3" },
-    { id: "stu6", name: "孙八", email: "sunba@example.com", role: "student", classId: "class3" },
-  ]);
+  // 初始化数据
+  useEffect(() => {
+    const fetchUserAndData = async () => {
+      try {
+        setLoading(true);
 
-  const handleAddComment = () => {
-    if (!newCommentContent.trim() || !user) return;
+        // 获取当前用户信息
+        const userData = localStorage.getItem("user");
+        if (!userData) {
+          router.push("/login");
+          return;
+        }
+        const currentUser = JSON.parse(userData);
+        setUser(currentUser);
 
-    const newComment: Comment = {
-      id: Date.now().toString(),
-      author: user.name,
-      content: newCommentContent.trim(),
-      timestamp: new Date().toLocaleString(),
+        // 获取项目列表
+        const projectsResponse = await fetch(`${API_BASE_URL}/teaching/projects`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+          }
+        });
+
+        if (!projectsResponse.ok) {
+          throw new Error('获取项目列表失败');
+        }
+
+        const projectsData: ProjectDTO[] = await projectsResponse.json();
+        setProjects(projectsData);
+
+        // 获取班级列表
+        const classesResponse = await fetch(`${API_BASE_URL}/teaching/classes`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+          }
+        });
+
+        if (classesResponse.ok) {
+          const classesData: ClassDTO[] = await classesResponse.json();
+          setClasses(classesData);
+        }
+
+        // 获取班级成员（用户列表）
+        const usersResponse = await fetch(`${API_BASE_URL}/teaching/users`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+          }
+        });
+
+        if (usersResponse.ok) {
+          const usersData: UserInfoDTO[] = await usersResponse.json();
+          setClassMembers(usersData);
+        }
+
+      } catch (err: any) {
+        setError(err.message || "初始化数据失败");
+      } finally {
+        setLoading(false);
+      }
     };
 
-    setComments((prevComments) => [...prevComments, newComment]);
-    setNewCommentContent('');
+    fetchUserAndData();
+  }, [router]);
+
+  // 获取项目详情
+  const fetchProjectDetails = async (projectId: number) => {
+    try {
+      setLoading(true);
+
+      const response = await fetch(`${API_BASE_URL}/teaching/projects/${projectId}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('获取项目详情失败');
+      }
+
+      const projectDetails: ProjectDetailDTO = await response.json();
+      setSelectedProject(projectDetails);
+
+      // 获取项目讨论
+      const discussionsResponse = await fetch(`${API_BASE_URL}/teaching/project-discussions/project/${projectId}`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
+        }
+      });
+
+      if (discussionsResponse.ok) {
+        const discussionsData: CommentDTO[] = await discussionsResponse.json();
+        setComments(discussionsData);
+      }
+
+    } catch (err: any) {
+      setError(err.message || "获取项目详情失败");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  useEffect(() => {
-    const userData = localStorage.getItem("user")
-    if (!userData) {
-      router.push("/login")
-      return
-    }
-    const currentUser = JSON.parse(userData)
-    setUser(currentUser)
+  // 创建项目
+  const handleCreateProject = async () => {
+    try {
+      setLoading(true);
 
-    // 模拟项目数据 - 确保当前用户参与项目
-    const allProjects: Project[] = [
-      {
-        id: "1",
-        title: "Web开发实践项目",
-        description: "使用React和Node.js开发一个完整的Web应用，包括用户认证、数据管理、响应式设计等核心功能",
-        status: "active",
-        progress: 65,
-        dueDate: "2024-02-15",
-        createdBy: "teacher1",
-        category: "前端开发",
-        difficulty: "中级",
-        skills: ["React", "Node.js", "数据库", "API设计"],
-        teams: [
-          {
-            id: "t1",
-            name: "前端开发组",
-            members: [currentUser.id, "stu1", "stu2"],
-            progress: 70,
-            leader: currentUser.id,
-            createdAt: "2024-01-05",
-            score: 85,
-            feedback: "团队协作良好，代码质量较高，需要加强测试覆盖率",
-            assignedTasks: ["task1", "task2"]
-          },
-          {
-            id: "t2",
-            name: "后端架构组",
-            members: ["stu3", "stu4"],
-            progress: 60,
-            leader: "stu3",
-            createdAt: "2024-01-06",
-            assignedTasks: ["task2"]
-          },
-        ],
-        tasks: [
-          {
-            id: "task1",
-            title: "需求分析与原型设计",
-            description: "完成项目需求分析文档和UI原型设计",
-            completed: true,
-            dueDate: "2024-01-10",
-            assignedTo: [currentUser.id, "stu1"],
-            priority: "high",
-            submissions: []
-          },
-          {
-            id: "task2",
-            title: "数据库设计",
-            description: "设计数据库结构和API接口",
-            completed: true,
-            dueDate: "2024-01-15",
-            assignedTo: ["stu3", "stu4"],
-            priority: "high",
-            submissions: []
-          },
-        ],
-        discussions: [
-          {
-            id: "d1",
-            author: currentUser.name,
-            content: "关于用户界面设计，我觉得应该采用更简洁的风格，提升用户体验",
-            timestamp: "2024-01-08 10:30",
-            replies: [
-              {
-                id: "d1-r1",
-                author: "张三",
-                content: "同意，我们可以参考一些优秀的设计案例",
-                timestamp: "2024-01-08 11:15",
-                replies: [],
-              },
-            ],
-          },
-        ],
-      },
-      {
-        id: "2",
-        title: "数据库设计与优化项目",
-        description: "设计并实现一个高性能的学生管理系统数据库，包括索引优化、查询优化等",
-        status: "active",
-        progress: 30,
-        dueDate: "2024-03-01",
-        createdBy: "teacher1",
-        category: "数据库",
-        difficulty: "中级",
-        skills: ["MySQL", "数据建模", "性能优化", "SQL"],
-        teams: [
-          {
-            id: "t3",
-            name: "数据建模组",
-            members: [currentUser.id, "stu5"],
-            progress: 35,
-            leader: currentUser.id,
-            createdAt: "2024-01-10",
-            assignedTasks: ["task3"]
-          },
-        ],
-        tasks: [
-          {
-            id: "task3",
-            title: "ER图设计",
-            description: "绘制完整的实体关系图",
-            completed: false,
-            dueDate: "2024-01-20",
-            assignedTo: [currentUser.id, "stu5"],
-            priority: "high",
-            submissions: []
-          },
-        ],
-        discussions: [],
-      },
-    ]
+      const response = await fetch(`${API_BASE_URL}/teaching/projects`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          title: selectedProject?.title,
+          description: selectedProject?.description,
+          coverUrl: selectedProject?.coverUrl,
+          startDate: selectedProject?.startDate,
+          endDate: selectedProject?.endDate
+        })
+      });
 
-    // 根据用户角色过滤项目
-    if (currentUser.role === "student") {
-      // 学生只能看到自己参与的项目
-      const studentProjects = allProjects.filter((project) =>
-          project.teams.some((team) => team.members.includes(currentUser.id)),
-      )
-      setProjects(studentProjects)
-    } else {
-      // 教师和管理员可以看到所有项目
-      setProjects(allProjects)
-    }
-  }, [router])
-
-  const handleCreateProject = () => {
-    const project: Project = {
-      id: Date.now().toString(),
-      title: newProject.title,
-      description: newProject.description,
-      status: "draft",
-      progress: 0,
-      dueDate: newProject.dueDate,
-      createdBy: user?.id || "",
-      category: newProject.category,
-      difficulty: newProject.difficulty,
-      skills: [],
-      teams: [],
-      tasks: [],
-      discussions: [],
-    }
-    setProjects([...projects, project])
-    setNewProject({
-      title: "",
-      description: "",
-      dueDate: "",
-      category: "",
-      difficulty: "初级",
-    })
-    setShowCreateProject(false)
-  }
-
-  const handleCreateTeam = () => {
-    if (!selectedProject || !user) return
-
-    const team: Team = {
-      id: Date.now().toString(),
-      name: newTeam.name,
-      members: newTeam.members,
-      progress: 0,
-      leader: newTeam.leader,
-      createdAt: new Date().toISOString().split("T")[0],
-      assignedTasks: newTeam.assignedTasks,
-      classId: newTeam.classId
-    }
-
-    const updatedProject = {
-      ...selectedProject,
-      teams: [...selectedProject.teams, team],
-    }
-
-    setProjects(projects.map((p) => (p.id === selectedProject.id ? updatedProject : p)))
-    setSelectedProject(updatedProject)
-    setNewTeam({
-      name: "",
-      classId: "",
-      members: [],
-      leader: "",
-      assignedTasks: []
-    })
-    setShowCreateTeam(false)
-  }
-
-  const handleJoinTeam = (teamId: string) => {
-    if (!selectedProject || !user) return
-
-    const updatedProject = {
-      ...selectedProject,
-      teams: selectedProject.teams.map((team) =>
-          team.id === teamId ? { ...team, members: [...team.members, user.id] } : team,
-      ),
-    }
-
-    setProjects(projects.map((p) => (p.id === selectedProject.id ? updatedProject : p)))
-    setSelectedProject(updatedProject)
-    setShowJoinTeam(false)
-  }
-
-  const handleCreateTask = () => {
-    if (!currentProjectForTask || !user) return
-
-    const task: Task = {
-      id: `task-${Date.now()}`,
-      title: newTask.title,
-      description: newTask.description,
-      completed: false,
-      dueDate: newTask.dueDate,
-      priority: newTask.priority,
-      assignedTo: newTask.assignedTo,
-      submissions: []
-    }
-
-    const updatedProject = {
-      ...currentProjectForTask,
-      tasks: [...currentProjectForTask.tasks, task],
-    }
-
-    setProjects(projects.map(p => p.id === currentProjectForTask.id ? updatedProject : p))
-
-    // 如果当前选中的项目是这个项目，更新它
-    if (selectedProject && selectedProject.id === currentProjectForTask.id) {
-      setSelectedProject(updatedProject)
-    }
-
-    setNewTask({
-      title: "",
-      description: "",
-      dueDate: "",
-      priority: "medium",
-      assignedTo: []
-    })
-    setShowCreateTask(false)
-    setCurrentProjectForTask(null)
-  }
-
-  // 编辑任务处理函数
-  const handleEditTask = () => {
-    if (!selectedProject || !currentTaskForEdit) return
-
-    const updatedTasks = selectedProject.tasks.map(task => {
-      if (task.id === currentTaskForEdit.id) {
-        return {
-          ...task,
-          title: editTask.title,
-          description: editTask.description,
-          dueDate: editTask.dueDate,
-          priority: editTask.priority,
-          assignedTo: editTask.assignedTo
-        }
+      if (!response.ok) {
+        throw new Error('创建项目失败');
       }
-      return task
-    })
 
-    const updatedProject = {
-      ...selectedProject,
-      tasks: updatedTasks
+      const newProject: ProjectDTO = await response.json();
+      setProjects([...projects, newProject]);
+      setShowCreateProject(false);
+
+    } catch (err: any) {
+      setError(err.message || "创建项目失败");
+    } finally {
+      setLoading(false);
     }
+  };
 
-    setProjects(projects.map(p => p.id === selectedProject.id ? updatedProject : p))
-    setSelectedProject(updatedProject)
-    setShowEditTask(false)
-    setCurrentTaskForEdit(null)
-  }
+  // 创建团队
+  const handleCreateTeam = async () => {
+    if (!selectedProject) return;
 
-  // 打开编辑任务对话框
-  const openEditTaskDialog = (task: Task) => {
-    setCurrentTaskForEdit(task)
-    setEditTask({
-      id: task.id,
-      title: task.title,
-      description: task.description,
-      dueDate: task.dueDate,
-      priority: task.priority,
-      assignedTo: task.assignedTo || []
-    })
-    setShowEditTask(true)
-  }
+    try {
+      setLoading(true);
 
-  const handleSubmitTask = () => {
-    if (!currentTaskForSubmission || !user || !selectedProject) return
+      const response = await fetch(`${API_BASE_URL}/teaching/teams`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: selectedProject?.teams[0]?.name,
+          description: selectedProject?.teams[0]?.name,
+          projectId: selectedProject.id,
+          leaderId: selectedProject?.teams[0]?.leaderId
+        })
+      });
 
-    const submission: Submission = {
-      id: `sub-${Date.now()}`,
-      userId: user.id,
-      userName: user.name,
-      content: newSubmission.content,
-      timestamp: new Date().toLocaleString(),
-      attachments: newSubmission.attachments
-    }
-
-    const updatedTasks = selectedProject.tasks.map(task => {
-      if (task.id === currentTaskForSubmission.id) {
-        return {
-          ...task,
-          submissions: [...task.submissions, submission]
-        }
+      if (!response.ok) {
+        throw new Error('创建团队失败');
       }
-      return task
-    })
 
-    const updatedProject = {
-      ...selectedProject,
-      tasks: updatedTasks
-    }
+      const newTeam: ProjectTeamDTO = await response.json();
 
-    setProjects(projects.map(p => p.id === selectedProject.id ? updatedProject : p))
-    setSelectedProject(updatedProject)
-
-    setNewSubmission({ content: "", attachments: [] })
-    setShowSubmitTask(false)
-    setCurrentTaskForSubmission(null)
-  }
-
-  const handleCompleteTask = (taskId: string) => {
-    if (!selectedProject || !user) return
-
-    const updatedTasks = selectedProject.tasks.map(task => {
-      if (task.id === taskId) {
-        return {
-          ...task,
-          completed: true
-        }
+      // 添加团队成员
+      for (const member of selectedProject.teams[0].members) {
+        await fetch(`${API_BASE_URL}/teaching/team-members`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            teamId: newTeam.id,
+            userId: member.id
+          })
+        });
       }
-      return task
-    })
 
-    const updatedProject = {
-      ...selectedProject,
-      tasks: updatedTasks
+      // 更新项目详情
+      if (selectedProject) {
+        const updatedProject = {
+          ...selectedProject,
+          teams: [...selectedProject.teams, newTeam]
+        };
+        setSelectedProject(updatedProject);
+      }
+
+      setShowCreateTeam(false);
+
+    } catch (err: any) {
+      setError(err.message || "创建团队失败");
+    } finally {
+      setLoading(false);
     }
+  };
 
-    setProjects(projects.map(p => p.id === selectedProject.id ? updatedProject : p))
-    setSelectedProject(updatedProject)
-  }
+  // 创建任务
+  const handleCreateTask = async () => {
+    if (!selectedProject) return;
 
-  const getUserTeam = (project: Project) => {
-    if (!user) return null
-    return project.teams.find((team) => team.members.includes(user.id))
-  }
+    try {
+      setLoading(true);
 
-  const canJoinTeam = (team: Team) => {
-    return user && !team.members.includes(user.id) && team.members.length < 4
-  }
+      const response = await fetch(`${API_BASE_URL}/teaching/tasks`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          title: selectedProject?.tasks[0]?.title,
+          description: selectedProject?.tasks[0]?.description,
+          projectId: selectedProject.id,
+          assignedToUserId: selectedProject?.tasks[0]?.assigneeId,
+          dueDate: selectedProject?.tasks[0]?.dueDate
+        })
+      });
 
+      if (!response.ok) {
+        throw new Error('创建任务失败');
+      }
+
+      const newTask: ProjectTaskDTO = await response.json();
+
+      // 更新项目详情
+      if (selectedProject) {
+        const updatedProject = {
+          ...selectedProject,
+          tasks: [...selectedProject.tasks, newTask]
+        };
+        setSelectedProject(updatedProject);
+      }
+
+      setShowCreateTask(false);
+
+    } catch (err: any) {
+      setError(err.message || "创建任务失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 更新任务状态
+  const handleUpdateTaskStatus = async (taskId: number, status: TaskStatus) => {
+    if (!selectedProject) return;
+
+    try {
+      setLoading(true);
+
+      const response = await fetch(`${API_BASE_URL}/teaching/tasks/${taskId}/status`, {
+        method: 'PUT',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ status })
+      });
+
+      if (!response.ok) {
+        throw new Error('更新任务状态失败');
+      }
+
+      // 更新本地任务状态
+      if (selectedProject) {
+        const updatedTasks = selectedProject.tasks.map(task =>
+            task.id === taskId ? { ...task, status } : task
+        );
+
+        const updatedProject = {
+          ...selectedProject,
+          tasks: updatedTasks
+        };
+
+        setSelectedProject(updatedProject);
+      }
+
+    } catch (err: any) {
+      setError(err.message || "更新任务状态失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 提交任务
+  const handleSubmitTask = async () => {
+    if (!currentTaskForSubmission || !user) return;
+
+    try {
+      setLoading(true);
+
+      const response = await fetch(`${API_BASE_URL}/teaching/tasks/${currentTaskForSubmission.id}/submissions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          content: currentTaskForSubmission.description,
+          attachments: []
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('提交任务失败');
+      }
+
+      const newSubmission: TaskSubmissionDTO = await response.json();
+
+      // 更新本地任务状态
+      if (selectedProject) {
+        const updatedTasks = selectedProject.tasks.map(task => {
+          if (task.id === currentTaskForSubmission.id) {
+            return {
+              ...task,
+              submissions: [...task.submissions, newSubmission]
+            };
+          }
+          return task;
+        });
+
+        const updatedProject = {
+          ...selectedProject,
+          tasks: updatedTasks
+        };
+
+        setSelectedProject(updatedProject);
+      }
+
+      setShowSubmitTask(false);
+      setCurrentTaskForSubmission(null);
+
+    } catch (err: any) {
+      setError(err.message || "提交任务失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 添加评论
+  const handleAddComment = async () => {
+    if (!newCommentContent.trim() || !user || !selectedProject) return;
+
+    try {
+      setLoading(true);
+
+      const response = await fetch(`${API_BASE_URL}/teaching/project-discussions`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          projectId: selectedProject.id,
+          userId: user.id,
+          message: newCommentContent
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('添加评论失败');
+      }
+
+      const newComment: CommentDTO = await response.json();
+      setComments([...comments, newComment]);
+      setNewCommentContent('');
+
+    } catch (err: any) {
+      setError(err.message || "添加评论失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 获取用户团队
+  const getUserTeam = (project: ProjectDetailDTO) => {
+    if (!user) return null;
+    return project.teams.find(team =>
+        team.members.some(member => member.id === user.id)
+    );
+  };
+
+  // 获取难度颜色
   const getDifficultyColor = (difficulty: string) => {
     switch (difficulty) {
-      case "初级":
-        return "bg-green-100 text-green-800"
-      case "中级":
-        return "bg-yellow-100 text-yellow-800"
-      case "高级":
-        return "bg-red-100 text-red-800"
-      default:
-        return "bg-gray-100 text-gray-800"
+      case "初级": return "bg-green-100 text-green-800";
+      case "中级": return "bg-yellow-100 text-yellow-800";
+      case "高级": return "bg-red-100 text-red-800";
+      default: return "bg-gray-100 text-gray-800";
     }
-  }
+  };
 
-  const getPriorityColor = (priority: string) => {
+  // 获取优先级颜色
+  const getPriorityColor = (priority: TaskPriority) => {
     switch (priority) {
-      case "high":
-        return "bg-red-100 text-red-800"
-      case "medium":
-        return "bg-yellow-100 text-yellow-800"
-      case "low":
-        return "bg-green-100 text-green-800"
-      default:
-        return "bg-gray-100 text-gray-800"
+      case "HIGH": return "bg-red-100 text-red-800";
+      case "MEDIUM": return "bg-yellow-100 text-yellow-800";
+      case "LOW": return "bg-green-100 text-green-800";
+      default: return "bg-gray-100 text-gray-800";
     }
-  }
+  };
 
-  const filteredProjects = projects.filter(
-      (project) =>
-          project.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          project.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          project.category.toLowerCase().includes(searchTerm.toLowerCase()),
-  )
+  // 过滤项目
+  const filteredProjects = projects.filter(project =>
+      project.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      project.description.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   if (!user) {
-    return <div>Loading...</div>
+    return <div>Loading...</div>;
   }
 
   if (selectedProject) {
-    const userTeam = getUserTeam(selectedProject)
-    const completedTasks = selectedProject.tasks.filter((task) => task.completed).length
-    const totalTasks = selectedProject.tasks.length
+    const userTeam = getUserTeam(selectedProject);
+    const completedTasks = selectedProject.tasks.filter(task => task.status === "DONE").length;
+    const totalTasks = selectedProject.tasks.length;
 
     return (
         <div className="min-h-screen bg-gray-50">
@@ -612,18 +575,18 @@ export default function TrainingProjectsPage() {
                   <p className="text-gray-600 mb-4">{selectedProject.description}</p>
                 </div>
                 <div className="flex flex-col items-end space-y-2">
-                  <Badge className={getDifficultyColor(selectedProject.difficulty)}>{selectedProject.difficulty}</Badge>
-                  <Badge variant="outline">{selectedProject.category}</Badge>
+                  <Badge className={getDifficultyColor("中级")}>中级</Badge>
+                  <Badge variant="outline">项目</Badge>
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-4 mb-4">
-                <Badge variant={selectedProject.status === "active" ? "default" : "secondary"}>
-                  {selectedProject.status === "active" ? "进行中" : "已完成"}
+                <Badge variant={selectedProject.status === "ACTIVE" ? "default" : "secondary"}>
+                  {selectedProject.status === "ACTIVE" ? "进行中" : "已完成"}
                 </Badge>
                 <div className="flex items-center text-sm text-gray-500">
                   <Calendar className="w-4 h-4 mr-1" />
-                  截止日期: {selectedProject.dueDate}
+                  截止日期: {selectedProject.endDate}
                 </div>
                 <div className="flex items-center text-sm text-gray-500">
                   <Clock className="w-4 h-4 mr-1" />
@@ -658,20 +621,6 @@ export default function TrainingProjectsPage() {
                     </>
                 )}
               </div>
-
-              {selectedProject.skills.length > 0 && (
-                  <div className="mt-4">
-                    <p className="text-sm font-medium text-gray-700 mb-2">技能要求:</p>
-                    <div className="flex flex-wrap gap-2">
-                      {selectedProject.skills.map((skill, index) => (
-                          <Badge key={index} variant="outline" className="text-xs">
-                            <BookOpen className="w-3 h-3 mr-1" />
-                            {skill}
-                          </Badge>
-                      ))}
-                    </div>
-                  </div>
-              )}
             </div>
 
             <Tabs defaultValue="overview" className="space-y-6">
@@ -680,7 +629,6 @@ export default function TrainingProjectsPage() {
                 <TabsTrigger value="teams">团队管理</TabsTrigger>
                 <TabsTrigger value="tasks">任务列表</TabsTrigger>
                 <TabsTrigger value="discussions">讨论区</TabsTrigger>
-                {user.role === "teacher" && <TabsTrigger value="grading">评分管理</TabsTrigger>}
               </TabsList>
 
               <TabsContent value="overview">
@@ -695,16 +643,16 @@ export default function TrainingProjectsPage() {
 
                         <div className="grid grid-cols-2 gap-4 text-sm">
                           <div>
-                            <span className="font-medium">项目类别:</span>
-                            <span className="ml-2">{selectedProject.category}</span>
+                            <span className="font-medium">开始日期:</span>
+                            <span className="ml-2">{selectedProject.startDate}</span>
                           </div>
                           <div>
-                            <span className="font-medium">难度等级:</span>
-                            <span className="ml-2">{selectedProject.difficulty}</span>
+                            <span className="font-medium">截止日期:</span>
+                            <span className="ml-2">{selectedProject.endDate}</span>
                           </div>
                           <div>
-                            <span className="font-medium">创建时间:</span>
-                            <span className="ml-2">2024-01-05</span>
+                            <span className="font-medium">创建人:</span>
+                            <span className="ml-2">{selectedProject.creator.realName}</span>
                           </div>
                           <div>
                             <span className="font-medium">参与团队:</span>
@@ -738,25 +686,18 @@ export default function TrainingProjectsPage() {
                                   <div className="ml-2 mt-1 flex flex-wrap gap-1">
                                     {userTeam.members.map((member, index) => (
                                         <Badge key={index} variant="outline" className="text-xs bg-blue-100 text-blue-800">
-                                          {member === user.id ? "我" : member}
+                                          {member.id === user.id ? "我" : member.realName}
                                         </Badge>
                                     ))}
                                   </div>
                                 </div>
                                 <div>
-                                  <span className="font-medium">创建时间:</span>
-                                  <span className="ml-2 text-blue-700">{userTeam.createdAt}</span>
+                                  <span className="font-medium">团队组长:</span>
+                                  <span className="ml-2 text-blue-700">
+                                {userTeam.members.find(m => m.id === userTeam.leaderId)?.realName || "未指定"}
+                              </span>
                                 </div>
                               </div>
-
-                              {userTeam.leader && (
-                                  <div className="text-sm">
-                                    <span className="font-medium">团队组长:</span>
-                                    <span className="ml-2 text-blue-700">
-                                {userTeam.leader === user.id ? "我" : userTeam.leader}
-                              </span>
-                                  </div>
-                              )}
 
                               {userTeam.score && (
                                   <div className="pt-2 border-t border-blue-200">
@@ -802,7 +743,7 @@ export default function TrainingProjectsPage() {
                         </div>
                         <div className="flex justify-between">
                           <span>讨论数量</span>
-                          <span className="font-semibold">{selectedProject.discussions.length}</span>
+                          <span className="font-semibold">{comments.length}</span>
                         </div>
                         {userTeam && (
                             <div className="pt-2 border-t">
@@ -814,28 +755,6 @@ export default function TrainingProjectsPage() {
                         )}
                       </CardContent>
                     </Card>
-
-                    <Card>
-                      <CardHeader>
-                        <CardTitle>最近活动</CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="space-y-3 text-sm">
-                          <div className="flex items-center space-x-2">
-                            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                            <span>任务"需求分析"已完成</span>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                            <span>新成员加入团队</span>
-                          </div>
-                          <div className="flex items-center space-x-2">
-                            <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
-                            <span>讨论区有新回复</span>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
                   </div>
                 </div>
               </TabsContent>
@@ -845,268 +764,142 @@ export default function TrainingProjectsPage() {
                   <div className="flex justify-between items-center">
                     <h2 className="text-xl font-semibold">团队管理</h2>
                     <div className="flex space-x-2">
-                      {user.role === "teacher" && (
-                          <Dialog open={showCreateTeam} onOpenChange={setShowCreateTeam}>
-                            <DialogTrigger asChild>
-                              <Button>
-                                <Plus className="w-4 h-4 mr-2" />
-                                创建团队
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
-                              <DialogHeader>
-                                <DialogTitle>创建新团队</DialogTitle>
-                                <DialogDescription>为项目创建一个新的团队</DialogDescription>
-                              </DialogHeader>
-                              <div className="space-y-4">
-                                <div>
-                                  <Label htmlFor="teamName">团队名称</Label>
-                                  <Input
-                                      id="teamName"
-                                      value={newTeam.name}
-                                      onChange={(e) => setNewTeam({ ...newTeam, name: e.target.value })}
-                                      placeholder="输入团队名称"
-                                  />
-                                </div>
+                      <Dialog open={showCreateTeam} onOpenChange={setShowCreateTeam}>
+                        <DialogTrigger asChild>
+                          <Button>
+                            <Plus className="w-4 h-4 mr-2" />
+                            创建团队
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="max-w-md max-h-[80vh] overflow-y-auto">
+                          <DialogHeader>
+                            <DialogTitle>创建新团队</DialogTitle>
+                            <DialogDescription>为项目创建一个新的团队</DialogDescription>
+                          </DialogHeader>
+                          <div className="space-y-4">
+                            <div>
+                              <Label htmlFor="teamName">团队名称</Label>
+                              <Input
+                                  id="teamName"
+                                  placeholder="输入团队名称"
+                              />
+                            </div>
 
-                                <div>
-                                  <Label htmlFor="teamClass">选择班级</Label>
-                                  <select
-                                      id="teamClass"
-                                      value={newTeam.classId}
-                                      onChange={(e) => setNewTeam({
-                                        ...newTeam,
-                                        classId: e.target.value,
-                                        members: [],
-                                        leader: ""
-                                      })}
-                                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                                  >
-                                    <option value="">选择班级</option>
-                                    {classes.map((cls) => (
-                                        <option key={cls.id} value={cls.id}>
-                                          {cls.name}
-                                        </option>
-                                    ))}
-                                  </select>
-                                </div>
+                            <div>
+                              <Label htmlFor="teamLeader">团队组长</Label>
+                              <select
+                                  id="teamLeader"
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                              >
+                                <option value="">请选择团队组长</option>
+                                {classMembers.map(member => (
+                                    <option key={member.id} value={member.id}>
+                                      {member.realName}
+                                    </option>
+                                ))}
+                              </select>
+                            </div>
 
-                                {newTeam.classId && (
-                                    <div>
-                                      <Label>班级成员</Label>
-                                      <div className="mt-1 space-y-2 max-h-40 overflow-y-auto p-2 border rounded-md">
-                                        {classMembers
-                                            .filter(member => member.classId === newTeam.classId)
-                                            .map((member) => (
-                                                <div key={member.id} className="flex items-center space-x-2">
-                                                  <input
-                                                      type="checkbox"
-                                                      id={`member-${member.id}`}
-                                                      checked={newTeam.members.includes(member.id)}
-                                                      onChange={(e) => {
-                                                        if (e.target.checked) {
-                                                          setNewTeam({
-                                                            ...newTeam,
-                                                            members: [...newTeam.members, member.id]
-                                                          })
-                                                        } else {
-                                                          setNewTeam({
-                                                            ...newTeam,
-                                                            members: newTeam.members.filter(id => id !== member.id),
-                                                            // 如果移除的成员是组长，则清空组长选择
-                                                            leader: newTeam.leader === member.id ? "" : newTeam.leader
-                                                          })
-                                                        }
-                                                      }}
-                                                  />
-                                                  <label htmlFor={`member-${member.id}`} className="text-sm">
-                                                    {member.name}
-                                                  </label>
-                                                </div>
-                                            ))}
-                                      </div>
+                            <div>
+                              <Label>团队成员</Label>
+                              <div className="mt-1 space-y-2 max-h-40 overflow-y-auto p-2 border rounded-md">
+                                {classMembers.map(member => (
+                                    <div key={member.id} className="flex items-center space-x-2">
+                                      <input
+                                          type="checkbox"
+                                          id={`member-${member.id}`}
+                                      />
+                                      <label htmlFor={`member-${member.id}`} className="text-sm">
+                                        {member.realName}
+                                      </label>
                                     </div>
-                                )}
-
-                                {newTeam.members.length > 0 && (
-                                    <div>
-                                      <Label htmlFor="teamLeader">团队组长</Label>
-                                      <select
-                                          id="teamLeader"
-                                          value={newTeam.leader}
-                                          onChange={(e) => setNewTeam({ ...newTeam, leader: e.target.value })}
-                                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                                      >
-                                        <option value="">请选择团队组长</option>
-                                        {newTeam.members.map((memberId) => {
-                                          const member = classMembers.find(m => m.id === memberId);
-                                          return member ? (
-                                              <option key={memberId} value={memberId}>
-                                                {member.name}
-                                              </option>
-                                          ) : null;
-                                        })}
-                                      </select>
-                                    </div>
-                                )}
-
-                                {selectedProject.tasks.length > 0 && (
-                                    <div>
-                                      <Label>分配任务</Label>
-                                      <div className="mt-1 space-y-2 max-h-40 overflow-y-auto p-2 border rounded-md">
-                                        {selectedProject.tasks.map((task) => (
-                                            <div key={task.id} className="flex items-center space-x-2">
-                                              <input
-                                                  type="checkbox"
-                                                  id={`task-${task.id}`}
-                                                  checked={newTeam.assignedTasks.includes(task.id)}
-                                                  onChange={(e) => {
-                                                    if (e.target.checked) {
-                                                      setNewTeam({
-                                                        ...newTeam,
-                                                        assignedTasks: [...newTeam.assignedTasks, task.id]
-                                                      })
-                                                    } else {
-                                                      setNewTeam({
-                                                        ...newTeam,
-                                                        assignedTasks: newTeam.assignedTasks.filter(id => id !== task.id)
-                                                      })
-                                                    }
-                                                  }}
-                                              />
-                                              <label htmlFor={`task-${task.id}`} className="text-sm">
-                                                {task.title}
-                                              </label>
-                                            </div>
-                                        ))}
-                                      </div>
-                                    </div>
-                                )}
-
-                                <Button
-                                    onClick={handleCreateTeam}
-                                    className="w-full"
-                                    disabled={!newTeam.name || newTeam.members.length === 0 || !newTeam.leader}
-                                >
-                                  创建团队
-                                </Button>
+                                ))}
                               </div>
-                            </DialogContent>
-                          </Dialog>
-                      )}
+                            </div>
+
+                            <Button onClick={handleCreateTeam} className="w-full">
+                              创建团队
+                            </Button>
+                          </div>
+                        </DialogContent>
+                      </Dialog>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {selectedProject.teams
-                        .filter(team => user.role === "teacher" || team.members.includes(user.id))
-                        .map((team) => {
-                          const isMyTeam = user && team.members.includes(user.id)
-                          return (
-                              <Card key={team.id} className={isMyTeam ? "ring-2 ring-blue-500 bg-blue-50/30" : ""}>
-                                <CardHeader>
-                                  <CardTitle className="flex items-center justify-between">
-                                    <div className="flex items-center">
-                                      {team.name}
-                                      {isMyTeam && (
-                                          <Badge className="ml-2" variant="default">
-                                            我的团队
-                                          </Badge>
-                                      )}
-                                    </div>
-                                    <Badge variant="outline">
-                                      <Users className="w-3 h-3 mr-1" />
-                                      {team.members.length}/4
-                                    </Badge>
-                                  </CardTitle>
-                                  <CardDescription>创建于 {team.createdAt}</CardDescription>
-                                </CardHeader>
-                                <CardContent>
-                                  <div className="space-y-4">
-                                    <div>
-                                      <div className="flex justify-between text-sm mb-2">
-                                        <span>团队进度</span>
-                                        <span>{team.progress}%</span>
-                                      </div>
-                                      <Progress value={team.progress} />
-                                    </div>
+                    {selectedProject.teams.map(team => {
+                      const isMyTeam = user && team.members.some(m => m.id === user.id);
 
-                                    {team.leader && (
-                                        <div className="text-sm">
-                                          <span className="font-medium">团队组长:</span>
-                                          <span className="ml-2 text-blue-600">
-                                  {team.leader === user.id ? "我" : team.leader}
-                                </span>
-                                        </div>
-                                    )}
-
-                                    <div>
-                                      <p className="text-sm font-medium mb-2">团队成员 ({team.members.length}/4)</p>
-                                      <div className="space-y-1">
-                                        {team.members.map((member, index) => {
-                                          const memberInfo = classMembers.find(m => m.id === member);
-                                          return (
-                                              <div key={index} className="flex items-center space-x-2 text-sm">
-                                                <Avatar className="w-6 h-6">
-                                                  <AvatarFallback className="text-xs">
-                                                    {memberInfo?.name?.charAt(0).toUpperCase() || "?"}
-                                                  </AvatarFallback>
-                                                </Avatar>
-                                                <span
-                                                    className={member === user.id ? "font-medium text-blue-600" : "text-gray-700"}
-                                                >
-                                      {member === user.id ? `我 (${user.name})` : memberInfo?.name || member}
-                                    </span>
-                                                {team.leader === member && (
-                                                    <Badge variant="outline" className="text-xs">
-                                                      组长
-                                                    </Badge>
-                                                )}
-                                              </div>
-                                          )
-                                        })}
-                                      </div>
-                                    </div>
-
-                                    {team.assignedTasks.length > 0 && (
-                                        <div className="mt-3 pt-3 border-t border-gray-200">
-                                          <p className="text-sm font-medium mb-2">分配的任务</p>
-                                          <div className="space-y-2">
-                                            {team.assignedTasks.map(taskId => {
-                                              const task = selectedProject.tasks.find(t => t.id === taskId);
-                                              return task ? (
-                                                  <div key={task.id} className="flex items-center justify-between text-sm p-2 bg-gray-50 rounded">
-                                                <span className={task.completed ? "line-through text-gray-500" : ""}>
-                                                  {task.title}
-                                                </span>
-                                                    <Badge variant={task.completed ? "default" : "secondary"} className="text-xs">
-                                                      {task.completed ? "已完成" : "进行中"}
-                                                    </Badge>
-                                                  </div>
-                                              ) : null;
-                                            })}
-                                          </div>
-                                        </div>
-                                    )}
-
-                                    {team.score && (
-                                        <div className="flex items-center space-x-2">
-                                          <Star className="w-4 h-4 text-yellow-500" />
-                                          <span className="text-sm font-medium">评分: {team.score}/100</span>
-                                        </div>
-                                    )}
-
-                                    {team.feedback && (
-                                        <div className="text-sm text-gray-600">
-                                          <p className="font-medium">教师评语:</p>
-                                          <p className="mt-1">{team.feedback}</p>
-                                        </div>
-                                    )}
+                      return (
+                          <Card key={team.id} className={isMyTeam ? "ring-2 ring-blue-500 bg-blue-50/30" : ""}>
+                            <CardHeader>
+                              <CardTitle className="flex items-center justify-between">
+                                <div className="flex items-center">
+                                  {team.name}
+                                  {isMyTeam && (
+                                      <Badge className="ml-2" variant="default">
+                                        我的团队
+                                      </Badge>
+                                  )}
+                                </div>
+                                <Badge variant="outline">
+                                  <Users className="w-3 h-3 mr-1" />
+                                  {team.members.length}/4
+                                </Badge>
+                              </CardTitle>
+                              <CardDescription>项目ID: {team.projectId}</CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                              <div className="space-y-4">
+                                <div>
+                                  <div className="flex justify-between text-sm mb-2">
+                                    <span>团队进度</span>
+                                    <span>{team.progress}%</span>
                                   </div>
-                                </CardContent>
-                              </Card>
-                          )
-                        })}
+                                  <Progress value={team.progress} />
+                                </div>
+
+                                <div>
+                                  <p className="text-sm font-medium mb-2">团队成员 ({team.members.length}/4)</p>
+                                  <div className="space-y-1">
+                                    {team.members.map(member => (
+                                        <div key={member.id} className="flex items-center space-x-2 text-sm">
+                                          <Avatar className="w-6 h-6">
+                                            <AvatarFallback className="text-xs">
+                                              {member.realName.charAt(0).toUpperCase()}
+                                            </AvatarFallback>
+                                          </Avatar>
+                                          <span className={member.id === user?.id ? "font-medium text-blue-600" : "text-gray-700"}>
+                                      {member.id === user?.id ? `我 (${member.realName})` : member.realName}
+                                    </span>
+                                          {team.leaderId === member.id && (
+                                              <Badge variant="outline" className="text-xs">
+                                                组长
+                                              </Badge>
+                                          )}
+                                        </div>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                {team.score !== null && (
+                                    <div className="flex items-center space-x-2">
+                                      <Star className="w-4 h-4 text-yellow-500" />
+                                      <span className="text-sm font-medium">评分: {team.score}/100</span>
+                                    </div>
+                                )}
+
+                                {team.feedback && (
+                                    <div className="text-sm text-gray-600">
+                                      <p className="font-medium">教师评语:</p>
+                                      <p className="mt-1">{team.feedback}</p>
+                                    </div>
+                                )}
+                              </div>
+                            </CardContent>
+                          </Card>
+                      );
+                    })}
                   </div>
                 </div>
               </TabsContent>
@@ -1119,79 +912,67 @@ export default function TrainingProjectsPage() {
                         <CardTitle>任务列表</CardTitle>
                         <CardDescription>项目相关的所有任务和分工</CardDescription>
                       </div>
-                      {user.role === "teacher" && (
-                          <Dialog open={showCreateTask} onOpenChange={setShowCreateTask}>
-                            <DialogTrigger asChild>
-                              <Button size="sm">
-                                <Plus className="w-4 h-4 mr-1" />
-                                添加任务
-                              </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                              <DialogHeader>
-                                <DialogTitle>创建新任务</DialogTitle>
-                                <DialogDescription>为项目添加新任务</DialogDescription>
-                              </DialogHeader>
-                              <div className="space-y-4">
-                                <div>
-                                  <Label htmlFor="taskTitle">任务标题</Label>
-                                  <Input
-                                      id="taskTitle"
-                                      value={newTask.title}
-                                      onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
-                                      placeholder="输入任务标题"
-                                  />
-                                </div>
-                                <div>
-                                  <Label htmlFor="taskDescription">任务描述</Label>
-                                  <Textarea
-                                      id="taskDescription"
-                                      value={newTask.description}
-                                      onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
-                                      placeholder="输入任务详细描述"
-                                      rows={3}
-                                  />
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div>
-                                    <Label htmlFor="taskDueDate">截止日期</Label>
-                                    <Input
-                                        id="taskDueDate"
-                                        type="date"
-                                        value={newTask.dueDate}
-                                        onChange={(e) => setNewTask({ ...newTask, dueDate: e.target.value })}
-                                    />
-                                  </div>
-                                  <div>
-                                    <Label htmlFor="taskPriority">优先级</Label>
-                                    <select
-                                        id="taskPriority"
-                                        value={newTask.priority}
-                                        onChange={(e) => setNewTask({ ...newTask, priority: e.target.value as any })}
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                                    >
-                                      <option value="high">高优先级</option>
-                                      <option value="medium">中优先级</option>
-                                      <option value="low">低优先级</option>
-                                    </select>
-                                  </div>
-                                </div>
-                                <Button onClick={handleCreateTask} className="w-full">
-                                  创建任务
-                                </Button>
+                      <Dialog open={showCreateTask} onOpenChange={setShowCreateTask}>
+                        <DialogTrigger asChild>
+                          <Button size="sm">
+                            <Plus className="w-4 h-4 mr-1" />
+                            添加任务
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader>
+                            <DialogTitle>创建新任务</DialogTitle>
+                            <DialogDescription>为项目添加新任务</DialogDescription>
+                          </DialogHeader>
+                          <div className="space-y-4">
+                            <div>
+                              <Label htmlFor="taskTitle">任务标题</Label>
+                              <Input
+                                  id="taskTitle"
+                                  placeholder="输入任务标题"
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor="taskDescription">任务描述</Label>
+                              <Textarea
+                                  id="taskDescription"
+                                  placeholder="输入任务详细描述"
+                                  rows={3}
+                              />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <Label htmlFor="taskDueDate">截止日期</Label>
+                                <Input
+                                    id="taskDueDate"
+                                    type="date"
+                                />
                               </div>
-                            </DialogContent>
-                          </Dialog>
-
-                      )}
+                              <div>
+                                <Label htmlFor="taskPriority">优先级</Label>
+                                <select
+                                    id="taskPriority"
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                >
+                                  <option value="HIGH">高优先级</option>
+                                  <option value="MEDIUM">中优先级</option>
+                                  <option value="LOW">低优先级</option>
+                                </select>
+                              </div>
+                            </div>
+                            <Button onClick={handleCreateTask} className="w-full">
+                              创建任务
+                            </Button>
+                          </div>
+                        </DialogContent>
+                      </Dialog>
                     </div>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
-                      {selectedProject.tasks.map((task) => {
-                        const isMyTask = task.assignedTo?.includes(user.id)
-                        const mySubmission = task.submissions?.find(sub => sub.userId === user.id)
-                        const isTeamLeader = userTeam?.leader === user.id
+                      {selectedProject.tasks.map(task => {
+                        const isMyTask = task.assigneeId === user?.id;
+                        const mySubmission = task.submissions.find(sub => sub.userId === user?.id);
 
                         return (
                             <div
@@ -1200,22 +981,15 @@ export default function TrainingProjectsPage() {
                                     isMyTask ? "bg-blue-50 border-blue-200" : ""
                                 }`}
                             >
-                              <input
-                                  type="checkbox"
-                                  checked={task.completed}
-                                  className="w-4 h-4 mt-1"
-                                  onChange={() => handleCompleteTask(task.id)}
-                                  disabled={user.role !== "student" || !isMyTask}
-                              />
                               <div className="flex-1">
                                 <div className="flex items-center space-x-2 mb-2">
-                                  <h3 className={`font-medium ${task.completed ? "line-through text-gray-500" : ""}`}>
+                                  <h3 className={`font-medium ${task.status === "DONE" ? "line-through text-gray-500" : ""}`}>
                                     {task.title}
                                   </h3>
                                   <Badge variant="outline" className={getPriorityColor(task.priority)}>
-                                    {task.priority === "high"
+                                    {task.priority === "HIGH"
                                         ? "高优先级"
-                                        : task.priority === "medium"
+                                        : task.priority === "MEDIUM"
                                             ? "中优先级"
                                             : "低优先级"}
                                   </Badge>
@@ -1228,21 +1002,15 @@ export default function TrainingProjectsPage() {
                                 <p className="text-sm text-gray-600 mb-2">{task.description}</p>
                                 <div className="flex items-center space-x-4 text-xs text-gray-500">
                                   <span>截止: {task.dueDate}</span>
-                                  {task.assignedTo && task.assignedTo.length > 0 && (
+                                  {task.assigneeId && (
                                       <span>
-                                  负责人:{" "}
-                                        {task.assignedTo
-                                            .map((assignee) => {
-                                              const member = classMembers.find(m => m.id === assignee);
-                                              return assignee === user.id ? "我" : member?.name || assignee;
-                                            })
-                                            .join(", ")}
+                                  负责人: {classMembers.find(m => m.id === task.assigneeId)?.realName || "未指定"}
                                 </span>
                                   )}
                                 </div>
 
                                 {/* 学生提交区域 */}
-                                {user.role === "student" && isMyTask && (
+                                {user && task.assigneeId === user.id && (
                                     <div className="mt-3 pt-3 border-t border-gray-200">
                                       {mySubmission ? (
                                           <div className="bg-green-50 p-3 rounded-lg">
@@ -1251,85 +1019,23 @@ export default function TrainingProjectsPage() {
                                                 <Check className="w-4 h-4 text-green-600 mr-2" />
                                                 <span className="text-sm font-medium text-green-700">已提交</span>
                                               </div>
-                                              <span className="text-xs text-gray-500">{mySubmission.timestamp}</span>
+                                              <span className="text-xs text-gray-500">{mySubmission.submittedAt}</span>
                                             </div>
                                             <p className="mt-2 text-sm text-gray-700">{mySubmission.content}</p>
-                                            {mySubmission.attachments && mySubmission.attachments.length > 0 && (
-                                                <div className="mt-2">
-                                                  <p className="text-xs font-medium text-gray-600">附件:</p>
-                                                  <div className="flex flex-wrap gap-1 mt-1">
-                                                    {mySubmission.attachments.map((file, index) => (
-                                                        <a
-                                                            key={index}
-                                                            href={file}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="text-xs text-blue-600 hover:underline"
-                                                        >
-                                                          <FileText className="w-3 h-3 inline mr-1" />
-                                                          附件{index + 1}
-                                                        </a>
-                                                    ))}
-                                                  </div>
-                                                </div>
-                                            )}
                                           </div>
                                       ) : (
                                           <div className="flex items-center space-x-2">
-                                            {isTeamLeader && (
-                                                <Dialog open={showSubmitTask} onOpenChange={setShowSubmitTask}>
-                                                  <DialogTrigger asChild>
-                                                    <Button
-                                                        size="sm"
-                                                        variant="outline"
-                                                        onClick={() => {
-                                                          setCurrentTaskForSubmission(task)
-                                                          setShowSubmitTask(true)
-                                                        }}
-                                                    >
-                                                      <FileText className="w-4 h-4 mr-1" />
-                                                      提交任务
-                                                    </Button>
-                                                  </DialogTrigger>
-                                                  <DialogContent>
-                                                    <DialogHeader>
-                                                      <DialogTitle>提交任务: {currentTaskForSubmission?.title}</DialogTitle>
-                                                      <DialogDescription>请填写任务完成情况</DialogDescription>
-                                                    </DialogHeader>
-                                                    <div className="space-y-4">
-                                                      <div>
-                                                        <Label htmlFor="submissionContent">任务完成说明</Label>
-                                                        <Textarea
-                                                            id="submissionContent"
-                                                            value={newSubmission.content}
-                                                            onChange={(e) => setNewSubmission({ ...newSubmission, content: e.target.value })}
-                                                            placeholder="描述你的任务完成情况..."
-                                                            rows={4}
-                                                        />
-                                                      </div>
-                                                      <div>
-                                                        <Label htmlFor="submissionAttachments">上传附件</Label>
-                                                        <Input
-                                                            id="submissionAttachments"
-                                                            type="file"
-                                                            multiple
-                                                            className="mt-1"
-                                                            onChange={(e) => {
-                                                              if (e.target.files) {
-                                                                const files = Array.from(e.target.files).map(file => URL.createObjectURL(file))
-                                                                setNewSubmission({ ...newSubmission, attachments: files })
-                                                              }
-                                                            }}
-                                                        />
-                                                        <p className="text-xs text-gray-500 mt-1">支持PDF、Word、图片等格式</p>
-                                                      </div>
-                                                      <Button onClick={handleSubmitTask} className="w-full">
-                                                        提交任务
-                                                      </Button>
-                                                    </div>
-                                                  </DialogContent>
-                                                </Dialog>
-                                            )}
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                onClick={() => {
+                                                  setCurrentTaskForSubmission(task);
+                                                  setShowSubmitTask(true);
+                                                }}
+                                            >
+                                              <FileText className="w-4 h-4 mr-1" />
+                                              提交任务
+                                            </Button>
                                             <span className="text-xs text-red-600">未提交</span>
                                           </div>
                                       )}
@@ -1337,21 +1043,22 @@ export default function TrainingProjectsPage() {
                                 )}
                               </div>
                               <div className="flex flex-col items-end space-y-2">
-                                <Badge variant={task.completed ? "default" : "secondary"}>
-                                  {task.completed ? "已完成" : "进行中"}
+                                <Badge variant={task.status === "DONE" ? "default" : "secondary"}>
+                                  {task.status === "DONE" ? "已完成" : "进行中"}
                                 </Badge>
-                                {user.role === "teacher" && (
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        onClick={() => openEditTaskDialog(task)}
-                                    >
-                                      <Edit className="w-4 h-4" />
-                                    </Button>
-                                )}
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => {
+                                      setCurrentTaskForEdit(task);
+                                      setShowEditTask(true);
+                                    }}
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </Button>
                               </div>
                             </div>
-                        )
+                        );
                       })}
 
                       {selectedProject.tasks.length === 0 && (
@@ -1362,95 +1069,6 @@ export default function TrainingProjectsPage() {
                       )}
                     </div>
                   </CardContent>
-                  // 在任务列表的Card组件内部，在创建任务的Dialog之后添加编辑任务的Dialog
-                  {/* 编辑任务弹窗 */}
-                  <Dialog open={showEditTask} onOpenChange={setShowEditTask}>
-                    <DialogContent>
-                      <DialogHeader>
-                        <DialogTitle>编辑任务</DialogTitle>
-                        <DialogDescription>修改任务信息</DialogDescription>
-                      </DialogHeader>
-                      <div className="space-y-4">
-                        <div>
-                          <Label htmlFor="editTaskTitle">任务标题</Label>
-                          <Input
-                              id="editTaskTitle"
-                              value={editTask.title}
-                              onChange={(e) => setEditTask({ ...editTask, title: e.target.value })}
-                              placeholder="输入任务标题"
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="editTaskDescription">任务描述</Label>
-                          <Textarea
-                              id="editTaskDescription"
-                              value={editTask.description}
-                              onChange={(e) => setEditTask({ ...editTask, description: e.target.value })}
-                              placeholder="输入任务详细描述"
-                              rows={3}
-                          />
-                        </div>
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <Label htmlFor="editTaskDueDate">截止日期</Label>
-                            <Input
-                                id="editTaskDueDate"
-                                type="date"
-                                value={editTask.dueDate}
-                                onChange={(e) => setEditTask({ ...editTask, dueDate: e.target.value })}
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="editTaskPriority">优先级</Label>
-                            <select
-                                id="editTaskPriority"
-                                value={editTask.priority}
-                                onChange={(e) => setEditTask({ ...editTask, priority: e.target.value as any })}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                            >
-                              <option value="high">高优先级</option>
-                              <option value="medium">中优先级</option>
-                              <option value="low">低优先级</option>
-                            </select>
-                          </div>
-                        </div>
-                        {/* 分配成员部分 */}
-                        <div>
-                          <Label>分配成员</Label>
-                          <div className="mt-1 space-y-2 max-h-40 overflow-y-auto p-2 border rounded-md">
-                            {classMembers.map((member) => (
-                                <div key={member.id} className="flex items-center space-x-2">
-                                  <input
-                                      type="checkbox"
-                                      id={`edit-assign-${member.id}`}
-                                      checked={editTask.assignedTo.includes(member.id)}
-                                      onChange={(e) => {
-                                        if (e.target.checked) {
-                                          setEditTask({
-                                            ...editTask,
-                                            assignedTo: [...editTask.assignedTo, member.id]
-                                          })
-                                        } else {
-                                          setEditTask({
-                                            ...editTask,
-                                            assignedTo: editTask.assignedTo.filter(id => id !== member.id)
-                                          })
-                                        }
-                                      }}
-                                  />
-                                  <label htmlFor={`edit-assign-${member.id}`} className="text-sm">
-                                    {member.name}
-                                  </label>
-                                </div>
-                            ))}
-                          </div>
-                        </div>
-                        <Button onClick={handleEditTask} className="w-full">
-                          保存更改
-                        </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
                 </Card>
               </TabsContent>
 
@@ -1468,20 +1086,23 @@ export default function TrainingProjectsPage() {
                             <p>暂无评论，快来发表第一条评论吧！</p>
                           </div>
                       ) : (
-                          comments.map((comment) => (
-                              <div key={comment.id} className="flex items-start space-x-3">
-                                <Avatar className="w-8 h-8">
-                                  <AvatarFallback>{comment.author.charAt(0).toUpperCase()}</AvatarFallback>
-                                </Avatar>
-                                <div className="flex-1 bg-gray-100 p-3 rounded-lg">
-                                  <div className="flex items-center justify-between mb-1">
-                                    <span className="font-medium text-gray-800">{comment.author}</span>
-                                    <span className="text-xs text-gray-500">{comment.timestamp}</span>
+                          comments.map(comment => {
+                            const author = classMembers.find(m => m.id === comment.authorId) || user;
+                            return (
+                                <div key={comment.id} className="flex items-start space-x-3">
+                                  <Avatar className="w-8 h-8">
+                                    <AvatarFallback>{author?.realName.charAt(0).toUpperCase()}</AvatarFallback>
+                                  </Avatar>
+                                  <div className="flex-1 bg-gray-100 p-3 rounded-lg">
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="font-medium text-gray-800">{author?.realName}</span>
+                                      <span className="text-xs text-gray-500">{comment.createdAt}</span>
+                                    </div>
+                                    <p className="text-sm text-gray-700">{comment.content}</p>
                                   </div>
-                                  <p className="text-sm text-gray-700">{comment.content}</p>
                                 </div>
-                              </div>
-                          ))
+                            );
+                          })
                       )}
                     </div>
                     <div className="mt-6 pt-4 border-t border-gray-200">
@@ -1489,67 +1110,125 @@ export default function TrainingProjectsPage() {
                       <Textarea
                           placeholder="输入你的评论..."
                           value={newCommentContent}
-                          onChange={(e) => setNewCommentContent(e.target.value)}
+                          onChange={e => setNewCommentContent(e.target.value)}
                           rows={4}
                           className="mb-3"
                       />
-                      <Button onClick={handleAddComment} disabled={!newCommentContent.trim()}>
+                      <Button onClick={handleAddComment} disabled={!newCommentContent.trim() || loading}>
                         发表评论
                       </Button>
                     </div>
                   </CardContent>
                 </Card>
               </TabsContent>
-
-              {user.role === "teacher" && (
-                  <TabsContent value="grading">
-                    <div className="space-y-6">
-                      <h2 className="text-xl font-semibold">团队评分管理</h2>
-                      {selectedProject.teams.map((team) => (
-                          <Card key={team.id}>
-                            <CardHeader>
-                              <CardTitle className="flex items-center justify-between">
-                                {team.name}
-                                <Badge variant="outline">进度: {team.progress}%</Badge>
-                              </CardTitle>
-                              <CardDescription>
-                                成员: {team.members.length}人 | 创建于: {team.createdAt}
-                              </CardDescription>
-                            </CardHeader>
-                            <CardContent>
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                  <Label htmlFor={`score-${team.id}`}>评分 (0-100)</Label>
-                                  <Input
-                                      id={`score-${team.id}`}
-                                      type="number"
-                                      min="0"
-                                      max="100"
-                                      defaultValue={team.score || ""}
-                                      placeholder="输入评分"
-                                  />
-                                </div>
-                                <div>
-                                  <Label htmlFor={`feedback-${team.id}`}>评语</Label>
-                                  <Textarea
-                                      id={`feedback-${team.id}`}
-                                      defaultValue={team.feedback || ""}
-                                      placeholder="输入评语"
-                                      rows={3}
-                                  />
-                                </div>
-                              </div>
-                              <Button className="mt-4">保存评分</Button>
-                            </CardContent>
-                          </Card>
-                      ))}
-                    </div>
-                  </TabsContent>
-              )}
             </Tabs>
           </div>
+
+          {/* 提交任务对话框 */}
+          <Dialog open={showSubmitTask} onOpenChange={setShowSubmitTask}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>提交任务: {currentTaskForSubmission?.title}</DialogTitle>
+                <DialogDescription>请填写任务完成情况</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="submissionContent">任务完成说明</Label>
+                  <Textarea
+                      id="submissionContent"
+                      placeholder="描述你的任务完成情况..."
+                      rows={4}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="submissionAttachments">上传附件</Label>
+                  <Input
+                      id="submissionAttachments"
+                      type="file"
+                      multiple
+                      className="mt-1"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">支持PDF、Word、图片等格式</p>
+                </div>
+                <Button onClick={handleSubmitTask} disabled={loading}>
+                  提交任务
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* 编辑任务对话框 */}
+          <Dialog open={showEditTask} onOpenChange={setShowEditTask}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>编辑任务</DialogTitle>
+                <DialogDescription>修改任务信息</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="editTaskTitle">任务标题</Label>
+                  <Input
+                      id="editTaskTitle"
+                      defaultValue={currentTaskForEdit?.title}
+                      placeholder="输入任务标题"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="editTaskDescription">任务描述</Label>
+                  <Textarea
+                      id="editTaskDescription"
+                      defaultValue={currentTaskForEdit?.description}
+                      placeholder="输入任务详细描述"
+                      rows={3}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="editTaskDueDate">截止日期</Label>
+                    <Input
+                        id="editTaskDueDate"
+                        type="date"
+                        defaultValue={currentTaskForEdit?.dueDate}
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="editTaskPriority">优先级</Label>
+                    <select
+                        id="editTaskPriority"
+                        defaultValue={currentTaskForEdit?.priority || "MEDIUM"}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                    >
+                      <option value="HIGH">高优先级</option>
+                      <option value="MEDIUM">中优先级</option>
+                      <option value="LOW">低优先级</option>
+                    </select>
+                  </div>
+                </div>
+                <div>
+                  <Label>分配成员</Label>
+                  <div className="mt-1 space-y-2 max-h-40 overflow-y-auto p-2 border rounded-md">
+                    {classMembers.map(member => (
+                        <div key={member.id} className="flex items-center space-x-2">
+                          <input
+                              type="checkbox"
+                              id={`edit-assign-${member.id}`}
+                              defaultChecked={currentTaskForEdit?.assigneeId === member.id}
+                          />
+                          <label htmlFor={`edit-assign-${member.id}`} className="text-sm">
+                            {member.realName}
+                          </label>
+                        </div>
+                    ))}
+                  </div>
+                </div>
+                <Button disabled={loading}>
+                  保存更改
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
-  )
+    );
   }
 
   return (
@@ -1559,215 +1238,147 @@ export default function TrainingProjectsPage() {
             <div>
               <h1 className="text-3xl font-bold text-gray-900">实训项目</h1>
               <p className="text-gray-600">
-                {user.role === "student"
-                    ? `参与实训项目 - 当前参与 ${filteredProjects.length} 个项目`
-                    : "管理和参与实训项目"}
+                {user ? `参与实训项目 - 当前参与 ${filteredProjects.length} 个项目` : "加载中..."}
               </p>
             </div>
-            {user.role === "teacher" && (
-                <Dialog open={showCreateProject} onOpenChange={setShowCreateProject}>
-                  <DialogTrigger asChild>
-                    <Button>
-                      <Plus className="w-4 h-4 mr-2" />
-                      创建项目
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-2xl">
-                    <DialogHeader>
-                      <DialogTitle>创建新项目</DialogTitle>
-                      <DialogDescription>创建一个新的实训项目</DialogDescription>
-                    </DialogHeader>
-                    <div className="space-y-6 py-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                          <Label htmlFor="title">项目标题</Label>
-                          <Input
-                              id="title"
-                              value={newProject.title}
-                              onChange={(e) => setNewProject({ ...newProject, title: e.target.value })}
-                              placeholder="输入项目标题"
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="category">项目类别</Label>
-                          <Input
-                              id="category"
-                              value={newProject.category}
-                              onChange={(e) => setNewProject({ ...newProject, category: e.target.value })}
-                              placeholder="如：前端开发"
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <Label htmlFor="description">项目描述</Label>
-                        <Textarea
-                            id="description"
-                            value={newProject.description}
-                            onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
-                            placeholder="输入项目描述"
-                            rows={3}
-                        />
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                          <Label htmlFor="dueDate">截止日期</Label>
-                          <Input
-                              id="dueDate"
-                              type="date"
-                              value={newProject.dueDate}
-                              onChange={(e) => setNewProject({ ...newProject, dueDate: e.target.value })}
-                          />
-                        </div>
-                        <div>
-                          <Label htmlFor="difficulty">难度等级</Label>
-                          <select
-                              id="difficulty"
-                              value={newProject.difficulty}
-                              onChange={(e) => setNewProject({ ...newProject, difficulty: e.target.value as any })}
-                              className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                          >
-                            <option value="初级">初级</option>
-                            <option value="中级">中级</option>
-                            <option value="高级">高级</option>
-                          </select>
-                        </div>
-                      </div>
+            <Dialog open={showCreateProject} onOpenChange={setShowCreateProject}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="w-4 h-4 mr-2" />
+                  创建项目
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>创建新项目</DialogTitle>
+                  <DialogDescription>创建一个新的实训项目</DialogDescription>
+                </DialogHeader>
+                <div className="space-y-6 py-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <Label htmlFor="title">项目标题</Label>
+                      <Input
+                          id="title"
+                          placeholder="输入项目标题"
+                      />
                     </div>
-                    <DialogFooter>
-                      <Button onClick={handleCreateProject} className="w-full">
-                        创建项目
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-            )}
+                    <div>
+                      <Label htmlFor="category">项目类别</Label>
+                      <Input
+                          id="category"
+                          placeholder="如：前端开发"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="description">项目描述</Label>
+                    <Textarea
+                        id="description"
+                        placeholder="输入项目描述"
+                        rows={3}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <Label htmlFor="startDate">开始日期</Label>
+                      <Input
+                          id="startDate"
+                          type="date"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="endDate">截止日期</Label>
+                      <Input
+                          id="endDate"
+                          type="date"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button onClick={handleCreateProject} disabled={loading}>
+                    创建项目
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
           </div>
 
           <div className="mb-6">
             <div className="relative">
               <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
               <Input
-                  placeholder="搜索项目名称、描述或类别..."
+                  placeholder="搜索项目名称或描述..."
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onChange={e => setSearchTerm(e.target.value)}
                   className="pl-10"
               />
             </div>
           </div>
 
-          {user.role === "student" && filteredProjects.length === 0 && (
+          {filteredProjects.length === 0 ? (
               <div className="text-center py-12">
                 <div className="text-gray-500 mb-4">
                   <Users className="w-16 h-16 mx-auto mb-4" />
-                  <h3 className="text-lg font-medium">暂无参与的项目</h3>
-                  <p className="text-sm">请联系老师将您加入到项目团队中去</p>
+                  <h3 className="text-lg font-medium">暂无项目</h3>
+                  <p className="text-sm">请创建新项目或联系管理员</p>
                 </div>
               </div>
-          )}
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredProjects.map((project) => {
-              const userTeam = getUserTeam(project)
-              const completedTasks = project.tasks.filter((task) => task.completed).length
-              const totalTasks = project.tasks.length
-
-              return (
-                  <Card
-                      key={project.id}
-                      className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:-translate-y-1 relative"
-                      onClick={() => setSelectedProject(project)}
-                  >
-                    <CardHeader>
-                      <div className="flex justify-between items-start mb-2">
-                        <CardTitle className="text-lg line-clamp-2">{project.title}</CardTitle>
-                        <div className="flex flex-col items-end space-y-1">
-                          <Badge variant={project.status === "active" ? "default" : "secondary"}>
-                            {project.status === "active" ? "进行中" : project.status === "completed" ? "已完成" : "草稿"}
-                          </Badge>
-                          <Badge className={getDifficultyColor(project.difficulty)}>{project.difficulty}</Badge>
-                        </div>
-                      </div>
-                      <div className="flex items-center space-x-2 mb-2">
-                        <Badge variant="outline" className="text-xs">
-                          {project.category}
-                        </Badge>
-                        {userTeam && (
-                            <Badge variant="outline" className="text-xs bg-blue-50 text-blue-700">
-                              我的团队
-                            </Badge>
-                        )}
-                      </div>
-                      <CardDescription className="line-clamp-2">{project.description}</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-4">
-                        <div>
-                          <div className="flex justify-between text-sm mb-2">
-                            <span>项目进度</span>
-                            <span>{project.progress}%</span>
+          ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {filteredProjects.map(project => {
+                  return (
+                      <Card
+                          key={project.id}
+                          className="cursor-pointer hover:shadow-lg transition-all duration-200 hover:-translate-y-1 relative"
+                          onClick={() => fetchProjectDetails(project.id)}
+                      >
+                        <CardHeader>
+                          <div className="flex justify-between items-start mb-2">
+                            <CardTitle className="text-lg line-clamp-2">{project.title}</CardTitle>
+                            <div className="flex flex-col items-end space-y-1">
+                              <Badge variant={project.status === "ACTIVE" ? "default" : "secondary"}>
+                                {project.status === "ACTIVE" ? "进行中" : "已完成"}
+                              </Badge>
+                              <Badge className={getDifficultyColor("中级")}>中级</Badge>
+                            </div>
                           </div>
-                          <Progress value={project.progress} className="h-2" />
-                        </div>
-
-                        {userTeam && (
+                          <CardDescription className="line-clamp-2">{project.description}</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="space-y-4">
                             <div>
                               <div className="flex justify-between text-sm mb-2">
-                                <span>我的团队进度</span>
-                                <span className="text-blue-600">{userTeam.progress}%</span>
+                                <span>项目进度</span>
+                                <span>{project.progress}%</span>
                               </div>
-                              <Progress value={userTeam.progress} className="h-2" />
+                              <Progress value={project.progress} className="h-2" />
                             </div>
-                        )}
 
-                        <div className="grid grid-cols-2 gap-4 text-sm text-gray-500">
-                          <div className="flex items-center">
-                            <Users className="w-4 h-4 mr-1" />
-                            {project.teams.length} 个团队
-                          </div>
-                          <div className="flex items-center">
-                            <Target className="w-4 h-4 mr-1" />
-                            {completedTasks}/{totalTasks} 任务
-                          </div>
-                          <div className="flex items-center">
-                            <Calendar className="w-4 h-4 mr-1" />
-                            {project.dueDate}
-                          </div>
-                          <div className="flex items-center">
-                            <MessageSquare className="w-4 h-4 mr-1" />
-                            {project.discussions.length} 讨论
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between">
-                          <div className="flex -space-x-2">
-                            {project.teams.slice(0, 3).map((team, index) => (
-                                <Avatar key={index} className="w-6 h-6 border-2 border-white">
-                                  <AvatarFallback className="text-xs">{team.name.charAt(0)}</AvatarFallback>
-                                </Avatar>
-                            ))}
-                            {project.teams.length > 3 && (
-                                <div className="w-6 h-6 rounded-full bg-gray-200 border-2 border-white flex items-center justify-center text-xs">
-                                  +{project.teams.length - 3}
-                                </div>
-                            )}
-                          </div>
-
-                          {userTeam && userTeam.score && (
-                              <div className="flex items-center space-x-1">
-                                <Star className="w-4 h-4 text-yellow-500" />
-                                <span className="text-sm font-medium">{userTeam.score}</span>
+                            <div className="grid grid-cols-2 gap-4 text-sm text-gray-500">
+                              <div className="flex items-center">
+                                <Users className="w-4 h-4 mr-1" />
+                                {project.progress}% 完成
                               </div>
-                          )}
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-              )
-            })}
-          </div>
+                              <div className="flex items-center">
+                                <Calendar className="w-4 h-4 mr-1" />
+                                {project.endDate}
+                              </div>
+                              <div className="flex items-center">
+                                <Target className="w-4 h-4 mr-1" />
+                                {project.creator.realName}
+                              </div>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                  );
+                })}
+              </div>
+          )}
         </div>
       </div>
-  )
+  );
 }

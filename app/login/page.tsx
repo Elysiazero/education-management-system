@@ -1,31 +1,33 @@
 "use client"
 
 import type React from "react"
-
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { GraduationCap, User, Shield, Eye, EyeOff, Smartphone, Mail, Key } from "lucide-react"
+import { User, Eye, EyeOff, Smartphone, Mail, Key } from "lucide-react"
+
+// API基础URL（根据实际环境配置）
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080/api/v1/auth";
 
 export default function LoginPage() {
   const [isLogin, setIsLogin] = useState(true)
   const [showPassword, setShowPassword] = useState(false)
   const [formData, setFormData] = useState({
+    username: "",
     email: "",
     phone: "",
     password: "",
-    name: "",
-    role: "student" as "student" | "teacher" | "admin",
+    realName: "", // 修改为 realName 以匹配后端
     confirmPassword: "",
-    verificationCode: "",
+    smsCode: "", // 修改为 smsCode 以匹配后端
   })
   const [error, setError] = useState("")
+  const [successMessage, setSuccessMessage] = useState("")
   const [loading, setLoading] = useState(false)
   const [countdown, setCountdown] = useState(0)
   const [isSending, setIsSending] = useState(false)
@@ -46,13 +48,21 @@ export default function LoginPage() {
       setIsSending(true)
       setError("")
 
-      // 模拟发送验证码到后端
-      await new Promise(resolve => setTimeout(resolve, 1000))
+      // 调用发送验证码接口 - 使用 POST 方法
+      const response = await fetch(`${API_BASE_URL}/send-code?phoneNumber=${formData.phone}`, {
+        method: 'POST'
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || '发送验证码失败')
+      }
 
       // 启动60秒倒计时
       setCountdown(60)
-    } catch (err) {
-      setError("发送验证码失败，请重试")
+      setSuccessMessage("验证码已发送，请查收短信")
+    } catch (err: any) {
+      setError(err.message || "发送验证码失败，请重试")
     } finally {
       setIsSending(false)
     }
@@ -65,63 +75,153 @@ export default function LoginPage() {
     }
   }, [countdown])
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setError("")
-    setLoading(true)
-
+  const handleLogin = async () => {
     try {
-      if (!isLogin) {
-        // 注册逻辑
-        if (formData.password !== formData.confirmPassword) {
-          setError("密码确认不匹配")
-          return
-        }
-        if (formData.password.length < 6) {
-          setError("密码长度至少6位")
-          return
-        }
-        if (!formData.verificationCode) {
-          setError("请输入验证码")
-          return
-        }
+      setLoading(true)
+      setError("")
+
+      const response = await fetch(`${API_BASE_URL}/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          username: formData.username,
+          password: formData.password
+        })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.message || '登录失败')
       }
 
-      // 模拟API调用
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      // 保存token到localStorage
+      localStorage.setItem('accessToken', data.accessToken)
+      localStorage.setItem('refreshToken', data.refreshToken)
 
-      // 创建用户对象
-      const user = {
-        id: Math.random().toString(36).substr(2, 9),
-        name: isLogin ? formData.email.split("@")[0] : formData.name,
-        email: formData.email,
-        phone: formData.phone,
-        role: isLogin ? formData.role : "admin", // 注册用户默认为管理员
-        avatar: `/placeholder.svg?height=40&width=40`,
-      }
+      // 获取用户信息
+      const userResponse = await fetch(`${API_BASE_URL}/me`, {
+        headers: {
+          'Authorization': `Bearer ${data.accessToken}`
+        }
+      })
 
-      // 保存用户信息到localStorage
-      localStorage.setItem("user", JSON.stringify(user))
+      const userData = await userResponse.json()
+      localStorage.setItem('user', JSON.stringify(userData))
 
       // 跳转到首页
       router.push("/")
-    } catch (err) {
-      setError("操作失败，请重试")
+    } catch (err: any) {
+      setError(err.message || "登录失败，请检查用户名和密码")
     } finally {
       setLoading(false)
     }
   }
 
-  const getRoleIcon = (role: string) => {
-    switch (role) {
-      case "admin":
-        return <Shield className="w-4 h-4" />
-      case "teacher":
-        return <GraduationCap className="w-4 h-4" />
-      case "student":
-        return <User className="w-4 h-4" />
-      default:
-        return <User className="w-4 h-4" />
+  const handleRegister = async () => {
+    try {
+      setLoading(true)
+      setError("")
+
+      // 表单验证
+      if (formData.password !== formData.confirmPassword) {
+        setError("密码确认不匹配")
+        return
+      }
+
+      if (formData.password.length < 8) {
+        setError("密码长度至少8位")
+        return
+      }
+
+      if (!formData.smsCode) {
+        setError("请输入验证码")
+        return
+      }
+
+      // 使用正确的字段名发送请求
+      const response = await fetch(`${API_BASE_URL}/register`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          username: formData.username,
+          password: formData.password,
+          realName: formData.realName, // 使用 realName
+          email: formData.email,
+          phoneNumber: formData.phone,
+          smsCode: formData.smsCode // 使用 smsCode
+        })
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        // 显示后端返回的具体错误信息
+        throw new Error(data.message || `注册失败: ${response.status} ${response.statusText}`)
+      }
+
+      setSuccessMessage("注册成功！请登录")
+      setIsLogin(true)
+      setFormData({
+        username: "",
+        email: "",
+        phone: "",
+        password: "",
+        realName: "",
+        confirmPassword: "",
+        smsCode: ""
+      })
+    } catch (err: any) {
+      setError(err.message || "注册失败，请重试")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleForgotPassword = async () => {
+    try {
+      setLoading(true)
+      setError("")
+
+      if (!formData.email) {
+        setError("请输入邮箱")
+        return
+      }
+
+      const response = await fetch(`${API_BASE_URL}/forgot-password`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          email: formData.email
+        })
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || '请求失败')
+      }
+
+      setSuccessMessage("密码重置邮件已发送，请查收")
+    } catch (err: any) {
+      setError(err.message || "请求失败，请重试")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (isLogin) {
+      await handleLogin()
+    } else {
+      await handleRegister()
     }
   }
 
@@ -131,7 +231,7 @@ export default function LoginPage() {
           <div className="bg-gradient-to-r from-blue-600 to-indigo-700 h-2 w-full"></div>
           <CardHeader className="text-center pb-2">
             <div className="mx-auto w-16 h-16 bg-blue-600 rounded-full flex items-center justify-center mb-4 mt-2 shadow-lg">
-              <GraduationCap className="w-8 h-8 text-white" />
+              <User className="w-8 h-8 text-white" />
             </div>
             <CardTitle className="text-2xl font-bold text-gray-800">教育管理系统</CardTitle>
             <CardDescription className="text-gray-500">{isLogin ? "登录您的账户" : "创建账户"}</CardDescription>
@@ -157,16 +257,16 @@ export default function LoginPage() {
               <TabsContent value="login" className="pt-4">
                 <form onSubmit={handleSubmit} className="space-y-5">
                   <div className="space-y-2">
-                    <Label htmlFor="email" className="flex items-center text-gray-700">
-                      <Mail className="w-4 h-4 mr-2" />
-                      邮箱
+                    <Label htmlFor="username" className="flex items-center text-gray-700">
+                      <User className="w-4 h-4 mr-2" />
+                      用户名
                     </Label>
                     <Input
-                        id="email"
-                        type="email"
-                        placeholder="请输入邮箱"
-                        value={formData.email}
-                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        id="username"
+                        type="text"
+                        placeholder="请输入用户名"
+                        value={formData.username}
+                        onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                         required
                         className="py-5 px-4 rounded-xl"
                     />
@@ -199,48 +299,29 @@ export default function LoginPage() {
                     </div>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="role" className="flex items-center text-gray-700">
-                      {getRoleIcon(formData.role)}
-                      <span className="ml-2">身份</span>
-                    </Label>
-                    <Select
-                        value={formData.role}
-                        onValueChange={(value: "student" | "teacher" | "admin") =>
-                            setFormData({ ...formData, role: value })
-                        }
-                    >
-                      <SelectTrigger className="py-5 px-4 rounded-xl">
-                        <SelectValue placeholder="选择身份" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="student">
-                          <div className="flex items-center space-x-2">
-                            <User className="w-4 h-4" />
-                            <span>学生</span>
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="teacher">
-                          <div className="flex items-center space-x-2">
-                            <GraduationCap className="w-4 h-4" />
-                            <span>教师</span>
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="admin">
-                          <div className="flex items-center space-x-2">
-                            <Shield className="w-4 h-4" />
-                            <span>系统管理员</span>
-                          </div>
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
                   {error && (
                       <Alert variant="destructive" className="rounded-xl">
                         <AlertDescription>{error}</AlertDescription>
                       </Alert>
                   )}
+
+                  {successMessage && (
+                      <Alert className="rounded-xl bg-green-100 border-green-400">
+                        <AlertDescription className="text-green-700">{successMessage}</AlertDescription>
+                      </Alert>
+                  )}
+
+                  <div className="flex justify-between items-center">
+                    <Button
+                        type="button"
+                        variant="link"
+                        className="text-blue-600 px-0"
+                        onClick={handleForgotPassword}
+                        disabled={loading}
+                    >
+                      忘记密码?
+                    </Button>
+                  </div>
 
                   <Button type="submit" className="w-full py-6 rounded-xl text-base" disabled={loading}>
                     {loading ? (
@@ -259,16 +340,32 @@ export default function LoginPage() {
               <TabsContent value="register" className="pt-4">
                 <form onSubmit={handleSubmit} className="space-y-5">
                   <div className="space-y-2">
-                    <Label htmlFor="name" className="flex items-center text-gray-700">
+                    <Label htmlFor="reg-username" className="flex items-center text-gray-700">
+                      <User className="w-4 h-4 mr-2" />
+                      用户名
+                    </Label>
+                    <Input
+                        id="reg-username"
+                        type="text"
+                        placeholder="请输入用户名"
+                        value={formData.username}
+                        onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                        required
+                        className="py-5 px-4 rounded-xl"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="realName" className="flex items-center text-gray-700">
                       <User className="w-4 h-4 mr-2" />
                       姓名
                     </Label>
                     <Input
-                        id="name"
+                        id="realName"
                         type="text"
                         placeholder="请输入姓名"
-                        value={formData.name}
-                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        value={formData.realName}
+                        onChange={(e) => setFormData({ ...formData, realName: e.target.value })}
                         required
                         className="py-5 px-4 rounded-xl"
                     />
@@ -307,17 +404,17 @@ export default function LoginPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="verificationCode" className="flex items-center text-gray-700">
+                    <Label htmlFor="smsCode" className="flex items-center text-gray-700">
                       <Key className="w-4 h-4 mr-2" />
                       短信验证码
                     </Label>
                     <div className="flex space-x-2">
                       <Input
-                          id="verificationCode"
+                          id="smsCode"
                           type="text"
                           placeholder="请输入验证码"
-                          value={formData.verificationCode}
-                          onChange={(e) => setFormData({ ...formData, verificationCode: e.target.value })}
+                          value={formData.smsCode}
+                          onChange={(e) => setFormData({ ...formData, smsCode: e.target.value })}
                           required
                           className="py-5 px-4 rounded-xl flex-1"
                       />
@@ -343,15 +440,15 @@ export default function LoginPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="password" className="flex items-center text-gray-700">
+                    <Label htmlFor="reg-password" className="flex items-center text-gray-700">
                       <Key className="w-4 h-4 mr-2" />
                       密码
                     </Label>
                     <div className="relative">
                       <Input
-                          id="password"
+                          id="reg-password"
                           type={showPassword ? "text" : "password"}
-                          placeholder="请输入密码（至少6位）"
+                          placeholder="请输入密码（至少8位）"
                           value={formData.password}
                           onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                           required
@@ -385,14 +482,15 @@ export default function LoginPage() {
                     />
                   </div>
 
-                  <div className="py-2 px-4 bg-blue-50 rounded-lg text-blue-700 flex items-center">
-                    <Shield className="w-4 h-4 mr-2 text-blue-600" />
-                    <span>信息保护</span>
-                  </div>
-
                   {error && (
                       <Alert variant="destructive" className="rounded-xl">
                         <AlertDescription>{error}</AlertDescription>
+                      </Alert>
+                  )}
+
+                  {successMessage && (
+                      <Alert className="rounded-xl bg-green-100 border-green-400">
+                        <AlertDescription className="text-green-700">{successMessage}</AlertDescription>
                       </Alert>
                   )}
 

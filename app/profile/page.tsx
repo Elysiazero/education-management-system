@@ -7,43 +7,97 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Pencil, Save, Shield, GraduationCap, Users } from "lucide-react"
+import { Pencil, Save, Shield, GraduationCap, Users, Lock, Key } from "lucide-react"
+import { toast } from "sonner"
 
 interface UserInterface {
     id: string
-    name: string
+    username: string
+    realName: string
     email: string
-    role: "student" | "teacher" | "admin"
-    avatar?: string
+    phoneNumber: string
+    role: "ROLE_ADMIN" | "ROLE_TEACHER" | "ROLE_STUDENT"
+    avatarUrl?: string
+    roles: string[]
+    permissions: string[]
+}
+
+interface ActivityLog {
+    id: string
+    action: string
+    timestamp: string
 }
 
 export default function ProfilePage() {
     const [user, setUser] = useState<UserInterface | null>(null)
     const [isEditing, setIsEditing] = useState(false)
-    const [name, setName] = useState("")
+    const [isEditingPassword, setIsEditingPassword] = useState(false)
+    const [realName, setRealName] = useState("")
     const [email, setEmail] = useState("")
+    const [phoneNumber, setPhoneNumber] = useState("")
+    const [oldPassword, setOldPassword] = useState("")
+    const [newPassword, setNewPassword] = useState("")
+    const [confirmPassword, setConfirmPassword] = useState("")
+    const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([])
     const router = useRouter()
 
     useEffect(() => {
-        const userData = localStorage.getItem("user")
-        if (!userData) {
+        const token = localStorage.getItem("access_token")
+        if (!token) {
             router.push("/login")
             return
         }
 
-        const parsedUser = JSON.parse(userData)
-        setUser(parsedUser)
-        setName(parsedUser.name)
-        setEmail(parsedUser.email)
+        fetchUserProfile(token)
+        fetchActivityLogs(token)
     }, [router])
+
+    const fetchUserProfile = async (token: string) => {
+        try {
+            const response = await fetch("http://localhost:8080/api/v1/me/profile", {
+                method: "GET",
+                headers: {
+                    "Authorization": `Bearer ${token}`
+                }
+            })
+
+            if (!response.ok) {
+                throw new Error("获取用户信息失败")
+            }
+
+            const userData = await response.json()
+            setUser(userData)
+            setRealName(userData.realName)
+            setEmail(userData.email)
+            setPhoneNumber(userData.phoneNumber || "")
+        } catch (error) {
+            console.error("获取用户信息错误:", error)
+            toast.error("获取用户信息失败")
+            router.push("/login")
+        }
+    }
+
+    const fetchActivityLogs = async (token: string) => {
+        try {
+            // 模拟活动日志数据，实际项目中应调用API
+            const mockLogs = [
+                { id: "1", action: "登录系统", timestamp: "今天 08:45" },
+                { id: "2", action: "完成虚拟仿真实验", timestamp: "昨天 14:23" },
+                { id: "3", action: "下载教学资源", timestamp: "2025年10月12日" }
+            ]
+            setActivityLogs(mockLogs)
+        } catch (error) {
+            console.error("获取活动日志错误:", error)
+        }
+    }
 
     const getRoleIcon = (role: string) => {
         switch (role) {
-            case "admin":
+            case "ROLE_ADMIN":
                 return <Shield className="w-4 h-4" />
-            case "teacher":
+            case "ROLE_TEACHER":
                 return <GraduationCap className="w-4 h-4" />
-            case "student":
+            case "ROLE_STUDENT":
                 return <Users className="w-4 h-4" />
             default:
                 return <Users className="w-4 h-4" />
@@ -52,32 +106,104 @@ export default function ProfilePage() {
 
     const getRoleLabel = (role: string) => {
         switch (role) {
-            case "admin":
+            case "ROLE_ADMIN":
                 return "系统管理员"
-            case "teacher":
+            case "ROLE_TEACHER":
                 return "教师"
-            case "student":
+            case "ROLE_STUDENT":
                 return "学生"
             default:
                 return "用户"
         }
     }
 
-    const handleSaveProfile = () => {
+    const handleSaveProfile = async () => {
         if (!user) return
 
-        const updatedUser = {
-            ...user,
-            name,
-            email
+        const token = localStorage.getItem("access_token")
+        if (!token) {
+            router.push("/login")
+            return
         }
 
-        localStorage.setItem("user", JSON.stringify(updatedUser))
-        setUser(updatedUser)
-        setIsEditing(false)
+        try {
+            const response = await fetch("http://localhost:8080/api/v1/me/profile", {
+                method: "PUT",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    realName,
+                    email,
+                    phoneNumber
+                })
+            })
 
-        // 在实际应用中，这里应该调用API更新服务器数据
-        console.log("Profile updated:", updatedUser)
+            if (!response.ok) {
+                throw new Error("更新个人信息失败")
+            }
+
+            const updatedUser = {
+                ...user,
+                realName,
+                email,
+                phoneNumber
+            }
+
+            setUser(updatedUser)
+            setIsEditing(false)
+            toast.success("个人信息更新成功")
+        } catch (error) {
+            console.error("更新个人信息错误:", error)
+            toast.error("更新个人信息失败")
+        }
+    }
+
+    const handleChangePassword = async () => {
+        if (newPassword !== confirmPassword) {
+            toast.error("新密码和确认密码不一致")
+            return
+        }
+
+        if (newPassword.length < 8) {
+            toast.error("密码长度至少为8位")
+            return
+        }
+
+        const token = localStorage.getItem("access_token")
+        if (!token) {
+            router.push("/login")
+            return
+        }
+
+        try {
+            // 注意：根据接口文档，修改密码接口可能需要调整
+            const response = await fetch("http://localhost:8080/api/v1/me/password", {
+                method: "PUT",
+                headers: {
+                    "Content-Type": "application/json",
+                    "Authorization": `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    oldPassword,
+                    newPassword
+                })
+            })
+
+            if (!response.ok) {
+                throw new Error("修改密码失败")
+            }
+
+            setIsEditingPassword(false)
+            setOldPassword("")
+            setNewPassword("")
+            setConfirmPassword("")
+            toast.success("密码修改成功")
+        } catch (error) {
+            console.error("修改密码错误:", error)
+            toast.error("修改密码失败，请检查旧密码是否正确")
+        }
     }
 
     if (!user) {
@@ -94,21 +220,19 @@ export default function ProfilePage() {
                             <h1 className="text-2xl font-bold text-gray-900">教育管理系统</h1>
                         </div>
                         <div className="flex items-center space-x-4">
-                            {/* 省略搜索和通知中心等代码，与主页一致 */}
                             <div className="flex items-center space-x-3">
                                 <Avatar>
-                                    <AvatarImage src={user.avatar || "/placeholder.svg"} />
-                                    <AvatarFallback>{user.name.charAt(0)}</AvatarFallback>
+                                    <AvatarImage src={user.avatarUrl || "/placeholder.svg"} />
+                                    <AvatarFallback>{user.realName.charAt(0)}</AvatarFallback>
                                 </Avatar>
                                 <div className="hidden md:block">
-                                    <p className="text-sm font-medium text-gray-900">{user.name}</p>
+                                    <p className="text-sm font-medium text-gray-900">{user.realName}</p>
                                     <div className="flex items-center space-x-1">
                                         {getRoleIcon(user.role)}
                                         <p className="text-xs text-gray-500">{getRoleLabel(user.role)}</p>
                                     </div>
                                 </div>
                             </div>
-                            {/* 省略退出按钮 */}
                         </div>
                     </div>
                 </div>
@@ -122,12 +246,12 @@ export default function ProfilePage() {
                         <Card className="sticky top-8">
                             <CardHeader className="items-center">
                                 <Avatar className="w-24 h-24 mb-4">
-                                    <AvatarImage src={user.avatar || "/placeholder.svg"} />
+                                    <AvatarImage src={user.avatarUrl || "/placeholder.svg"} />
                                     <AvatarFallback className="text-2xl">
-                                        {user.name.charAt(0)}
+                                        {user.realName.charAt(0)}
                                     </AvatarFallback>
                                 </Avatar>
-                                <CardTitle className="text-xl">{user.name}</CardTitle>
+                                <CardTitle className="text-xl">{user.realName}</CardTitle>
                                 <div className="flex items-center space-x-1 text-gray-600">
                                     {getRoleIcon(user.role)}
                                     <span>{getRoleLabel(user.role)}</span>
@@ -138,6 +262,11 @@ export default function ProfilePage() {
                                 <div>
                                     <Label className="text-gray-500">用户ID</Label>
                                     <p className="font-medium">{user.id}</p>
+                                </div>
+
+                                <div>
+                                    <Label className="text-gray-500">用户名</Label>
+                                    <p className="font-medium">{user.username}</p>
                                 </div>
 
                                 <div>
@@ -179,15 +308,15 @@ export default function ProfilePage() {
                                 <div className="space-y-6">
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <div>
-                                            <Label htmlFor="name">姓名</Label>
+                                            <Label htmlFor="realName">真实姓名</Label>
                                             {isEditing ? (
                                                 <Input
-                                                    id="name"
-                                                    value={name}
-                                                    onChange={(e) => setName(e.target.value)}
+                                                    id="realName"
+                                                    value={realName}
+                                                    onChange={(e) => setRealName(e.target.value)}
                                                 />
                                             ) : (
-                                                <p className="font-medium py-2">{name}</p>
+                                                <p className="font-medium py-2">{realName}</p>
                                             )}
                                         </div>
 
@@ -204,44 +333,110 @@ export default function ProfilePage() {
                                                 <p className="font-medium py-2">{email}</p>
                                             )}
                                         </div>
+
+                                        <div>
+                                            <Label htmlFor="phoneNumber">手机号码</Label>
+                                            {isEditing ? (
+                                                <Input
+                                                    id="phoneNumber"
+                                                    value={phoneNumber}
+                                                    onChange={(e) => setPhoneNumber(e.target.value)}
+                                                />
+                                            ) : (
+                                                <p className="font-medium py-2">{phoneNumber || "未设置"}</p>
+                                            )}
+                                        </div>
                                     </div>
 
                                     <div className="border-t pt-6">
                                         <h3 className="text-lg font-semibold mb-4">安全设置</h3>
-                                        <div className="space-y-4">
-                                            <div className="flex justify-between items-center">
+                                        {isEditingPassword ? (
+                                            <div className="space-y-4">
                                                 <div>
-                                                    <p className="font-medium">密码</p>
-                                                    <p className="text-sm text-gray-500">上次修改：3个月前</p>
+                                                    <Label htmlFor="oldPassword">当前密码</Label>
+                                                    <Input
+                                                        id="oldPassword"
+                                                        type="password"
+                                                        value={oldPassword}
+                                                        onChange={(e) => setOldPassword(e.target.value)}
+                                                    />
                                                 </div>
-                                                <Button variant="outline">更改密码</Button>
+                                                <div>
+                                                    <Label htmlFor="newPassword">新密码</Label>
+                                                    <Input
+                                                        id="newPassword"
+                                                        type="password"
+                                                        value={newPassword}
+                                                        onChange={(e) => setNewPassword(e.target.value)}
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <Label htmlFor="confirmPassword">确认新密码</Label>
+                                                    <Input
+                                                        id="confirmPassword"
+                                                        type="password"
+                                                        value={confirmPassword}
+                                                        onChange={(e) => setConfirmPassword(e.target.value)}
+                                                    />
+                                                </div>
+                                                <div className="flex gap-2">
+                                                    <Button onClick={handleChangePassword}>
+                                                        <Save className="mr-2 h-4 w-4" />
+                                                        保存密码
+                                                    </Button>
+                                                    <Button variant="outline" onClick={() => setIsEditingPassword(false)}>
+                                                        取消
+                                                    </Button>
+                                                </div>
                                             </div>
-
-                                            <div className="flex justify-between items-center">
-                                                <div>
-                                                    <p className="font-medium">双重认证</p>
-                                                    <p className="text-sm text-gray-500">未启用</p>
+                                        ) : (
+                                            <div className="space-y-4">
+                                                <div className="flex justify-between items-center">
+                                                    <div>
+                                                        <p className="font-medium">密码</p>
+                                                        <p className="text-sm text-gray-500">上次修改：3个月前</p>
+                                                    </div>
+                                                    <Button variant="outline" onClick={() => setIsEditingPassword(true)}>
+                                                        更改密码
+                                                    </Button>
                                                 </div>
-                                                <Button variant="outline">启用</Button>
+
+                                                <div className="flex justify-between items-center">
+                                                    <div>
+                                                        <p className="font-medium">双重认证</p>
+                                                        <p className="text-sm text-gray-500">未启用</p>
+                                                    </div>
+                                                    <Button variant="outline">启用</Button>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="border-t pt-6">
+                                        <h3 className="text-lg font-semibold mb-4">权限信息</h3>
+                                        <div className="space-y-3">
+                                            <div>
+                                                <Label>角色</Label>
+                                                <div className="flex flex-wrap gap-2 mt-2">
+                                                    {user.roles.map(role => (
+                                                        <span key={role} className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">
+                                                            {getRoleLabel(role)}
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                            <div>
+                                                <Label>权限</Label>
+                                                <div className="flex flex-wrap gap-2 mt-2">
+                                                    {user.permissions.map(permission => (
+                                                        <span key={permission} className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm">
+                                                            {permission}
+                                                        </span>
+                                                    ))}
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
-
-                                    {user.role === "student" && (
-                                        <div className="border-t pt-6">
-                                            <h3 className="text-lg font-semibold mb-4">学习偏好</h3>
-                                            <div className="space-y-4">
-                                                <div>
-                                                    <Label>首选学习语言</Label>
-                                                    <p className="font-medium">中文</p>
-                                                </div>
-                                                <div>
-                                                    <Label>通知偏好</Label>
-                                                    <p className="font-medium">仅重要通知</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    )}
                                 </div>
                             </CardContent>
                         </Card>
@@ -253,27 +448,15 @@ export default function ProfilePage() {
                             </CardHeader>
                             <CardContent>
                                 <div className="space-y-4">
-                                    <div className="flex items-center">
-                                        <div className="bg-blue-600 w-2 h-2 rounded-full mr-3"></div>
-                                        <div>
-                                            <p className="font-medium">登录系统</p>
-                                            <p className="text-sm text-gray-500">今天 08:45</p>
+                                    {activityLogs.map(log => (
+                                        <div key={log.id} className="flex items-center">
+                                            <div className="bg-blue-600 w-2 h-2 rounded-full mr-3"></div>
+                                            <div>
+                                                <p className="font-medium">{log.action}</p>
+                                                <p className="text-sm text-gray-500">{log.timestamp}</p>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div className="flex items-center">
-                                        <div className="bg-green-600 w-2 h-2 rounded-full mr-3"></div>
-                                        <div>
-                                            <p className="font-medium">完成虚拟仿真实验</p>
-                                            <p className="text-sm text-gray-500">昨天 14:23</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center">
-                                        <div className="bg-purple-600 w-2 h-2 rounded-full mr-3"></div>
-                                        <div>
-                                            <p className="font-medium">下载教学资源</p>
-                                            <p className="text-sm text-gray-500">2025年10月12日</p>
-                                        </div>
-                                    </div>
+                                    ))}
                                 </div>
                             </CardContent>
                         </Card>
