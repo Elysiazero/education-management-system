@@ -40,7 +40,7 @@ export default function ProfilePage() {
     const [confirmPassword, setConfirmPassword] = useState("")
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([])
     const router = useRouter()
-
+    const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080/api/v1/me";
     useEffect(() => {
         const token = localStorage.getItem("access_token")
         if (!token) {
@@ -54,7 +54,7 @@ export default function ProfilePage() {
 
     const fetchUserProfile = async (token: string) => {
         try {
-            const response = await fetch("http://localhost:8080/api/v1/me/profile", {
+            const response = await fetch(`${API_BASE_URL}/profile`, {
                 method: "GET",
                 headers: {
                     "Authorization": `Bearer ${token}`
@@ -127,7 +127,7 @@ export default function ProfilePage() {
         }
 
         try {
-            const response = await fetch("http://localhost:8080/api/v1/me/profile", {
+            const response = await fetch(`${API_BASE_URL}profile`, {
                 method: "PUT",
                 headers: {
                     "Content-Type": "application/json",
@@ -179,7 +179,7 @@ export default function ProfilePage() {
 
         try {
             // 注意：根据接口文档，修改密码接口可能需要调整
-            const response = await fetch("http://localhost:8080/api/v1/me/password", {
+            const response = await fetch(`${API_BASE_URL}/password`, {
                 method: "PUT",
                 headers: {
                     "Content-Type": "application/json",

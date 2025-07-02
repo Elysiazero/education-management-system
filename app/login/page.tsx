@@ -79,7 +79,7 @@ export default function LoginPage() {
     try {
       setLoading(true)
       setError("")
-
+      console.log("-------------")
       const response = await fetch(`${API_BASE_URL}/login`, {
         method: 'POST',
         headers: {
@@ -90,7 +90,6 @@ export default function LoginPage() {
           password: formData.password
         })
       })
-
       const data = await response.json()
 
       if (!response.ok) {
@@ -102,7 +101,7 @@ export default function LoginPage() {
       localStorage.setItem('refreshToken', data.refreshToken)
 
       // 获取用户信息
-      const userResponse = await fetch(`${API_BASE_URL}/me`, {
+      const userResponse = await fetch(`http://localhost:8080/api/v1/me/profile`, {
         headers: {
           'Authorization': `Bearer ${data.accessToken}`
         }
@@ -110,7 +109,7 @@ export default function LoginPage() {
 
       const userData = await userResponse.json()
       localStorage.setItem('user', JSON.stringify(userData))
-
+      console.log(userData)
       // 跳转到首页
       router.push("/")
     } catch (err: any) {

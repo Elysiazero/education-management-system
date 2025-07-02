@@ -61,7 +61,7 @@ export default function HomePage() {
 
   useEffect(() => {
     const fetchUserData = async () => {
-      const accessToken = localStorage.getItem("access_token")
+      const accessToken = localStorage.getItem("accessToken")
 
       if (!accessToken) {
         router.push("/login")

@@ -40,7 +40,7 @@ import {
 } from "lucide-react"
 
 // API基础URL配置
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080/api/v1";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080/api/v1/teaching";
 
 // 项目状态类型
 type ProjectStatus = "ACTIVE" | "COMPLETED" | "DRAFT";
