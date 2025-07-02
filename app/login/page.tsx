@@ -99,7 +99,8 @@ export default function LoginPage() {
       // 保存token到localStorage
       localStorage.setItem('accessToken', data.accessToken)
       localStorage.setItem('refreshToken', data.refreshToken)
-
+// 添加用户信息存储
+      localStorage.setItem('user', JSON.stringify(data.user)); // 确保响应中包含用户信息
       // 获取用户信息
       const userResponse = await fetch(`http://localhost:8080/api/v1/me/profile`, {
         headers: {
@@ -107,9 +108,17 @@ export default function LoginPage() {
         }
       })
 
+      if (!userResponse.ok) {
+        const errorData = await userResponse.json()
+        throw new Error(errorData.message || "获取用户信息失败")
+      }
+
       const userData = await userResponse.json()
       localStorage.setItem('user', JSON.stringify(userData))
-      console.log(userData)
+      console.log("用户信息:", userData)
+      console.log("登录成功，即将跳转");
+      console.log("Access Token:", data.accessToken);
+      console.log("用户数据:", data.user);
       // 跳转到首页
       router.push("/")
     } catch (err: any) {

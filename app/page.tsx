@@ -58,11 +58,12 @@ export default function HomePage() {
   const [recentActivities, setRecentActivities] = useState<RecentActivity[]>([])
   const [loading, setLoading] = useState(true)
   const router = useRouter()
-
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080/api/v1";
   useEffect(() => {
+    console.log("首页组件挂载");
     const fetchUserData = async () => {
       const accessToken = localStorage.getItem("accessToken")
-
+      console.log("获取到的Access Token:", accessToken);
       if (!accessToken) {
         router.push("/login")
         return
@@ -70,7 +71,7 @@ export default function HomePage() {
 
       try {
         // 获取用户信息
-        const userResponse = await fetch("/api/v1/me/profile", {
+        const userResponse = await fetch(`${API_BASE_URL}/me/profile`, {
           headers: {
             Authorization: `Bearer ${accessToken}`
           }
@@ -187,12 +188,12 @@ export default function HomePage() {
   }, [router])
 
   const handleLogout = async () => {
-    const accessToken = localStorage.getItem("access_token")
+    const accessToken = localStorage.getItem("accessToken")
 
     if (accessToken) {
       try {
         // 调用登出接口
-        await fetch("/api/v1/auth/logout", {
+        await fetch(`${API_BASE_URL}/auth/logout`, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${accessToken}`
@@ -203,10 +204,10 @@ export default function HomePage() {
       }
     }
 
-    // 清除本地存储
-    localStorage.removeItem("access_token")
-    localStorage.removeItem("refresh_token")
-    localStorage.removeItem("user")
+    // 修改清除存储部分
+    localStorage.removeItem("accessToken");
+    localStorage.removeItem("refreshToken");
+    localStorage.removeItem("user");
 
     router.push("/login")
   }
