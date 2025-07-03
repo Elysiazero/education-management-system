@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -38,6 +38,8 @@ export default function ProfilePage() {
     const [newPassword, setNewPassword] = useState("")
     const [confirmPassword, setConfirmPassword] = useState("")
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([])
+    const [isUploading, setIsUploading] = useState(false)
+    const fileInputRef = useRef<HTMLInputElement>(null)
     const router = useRouter()
 
     const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080/api/v1";
@@ -94,11 +96,11 @@ export default function ProfilePage() {
 
     const getRoleIcon = (role: string) => {
         switch (role) {
-            case "ROLE_ADMIN":
+            case "admin":
                 return <Shield className="w-4 h-4" />
-            case "ROLE_TEACHER":
+            case "teacher":
                 return <GraduationCap className="w-4 h-4" />
-            case "ROLE_STUDENT":
+            case "student":
                 return <Users className="w-4 h-4" />
             default:
                 return <Users className="w-4 h-4" />
@@ -107,11 +109,11 @@ export default function ProfilePage() {
 
     const getRoleLabel = (role: string) => {
         switch (role) {
-            case "ROLE_ADMIN":
+            case "admin":
                 return "系统管理员"
-            case "ROLE_TEACHER":
+            case "teacher":
                 return "教师"
-            case "ROLE_STUDENT":
+            case "student":
                 return "学生"
             default:
                 return "用户"
@@ -188,9 +190,8 @@ export default function ProfilePage() {
         }
 
         try {
-            // 使用正确的修改密码接口
             const response = await fetch(`${API_BASE_URL}/me/password`, {
-                method: "PUT", // 使用PUT方法
+                method: "PUT",
                 headers: {
                     "Content-Type": "application/json",
                     "Authorization": `Bearer ${token}`
@@ -215,6 +216,71 @@ export default function ProfilePage() {
         } catch (error: any) {
             console.error("修改密码错误:", error)
             toast.error(error.message || "修改密码失败，请检查当前密码")
+        }
+    }
+
+    const handleAvatarUpload = () => {
+        if (fileInputRef.current) {
+            fileInputRef.current.click()
+        }
+    }
+
+    const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0]
+        if (!file || !user) return
+
+        // 验证文件类型
+        if (!file.type.match(/image\/(jpeg|png|gif|webp)/)) {
+            toast.error("请上传有效的图片格式 (JPEG, PNG, GIF, WEBP)")
+            return
+        }
+
+        // 验证文件大小 (2MB)
+        if (file.size > 2 * 1024 * 1024) {
+            toast.error("图片大小不能超过2MB")
+            return
+        }
+
+        setIsUploading(true)
+        const token = localStorage.getItem("accessToken")
+        if (!token) {
+            router.push("/login")
+            return
+        }
+
+        try {
+            // 创建FormData并添加文件
+            const formData = new FormData()
+            formData.append("avatar", file)
+            formData.append("realName", realName)
+            formData.append("email", email)
+            formData.append("phoneNumber", phoneNumber)
+
+            const response = await fetch(`${API_BASE_URL}/me/profile`, {
+                method: "PUT",
+                headers: {
+                    "Authorization": `Bearer ${token}`
+                },
+                body: formData
+            })
+
+            if (!response.ok) {
+                const errorData = await response.json()
+                throw new Error(errorData.message || "头像更新失败")
+            }
+
+            const userData = await response.json()
+            setUser(userData)
+            toast.success("头像更新成功")
+        } catch (error: any) {
+            console.error("头像上传错误:", error)
+            toast.error(error.message || "头像更新失败")
+        } finally {
+            setIsUploading(false)
+            // 重置文件输入
+            if (fileInputRef.current) {
+                fileInputRef.current.value = ""
+            }
         }
     }
 
@@ -295,9 +361,21 @@ export default function ProfilePage() {
                                     <p className="font-medium">2023年6月15日</p>
                                 </div>
 
-                                <Button variant="outline" className="w-full mt-4">
-                                    更改头像
+                                <Button
+                                    variant="outline"
+                                    className="w-full mt-4"
+                                    onClick={handleAvatarUpload}
+                                    disabled={isUploading}
+                                >
+                                    {isUploading ? "上传中..." : "更改头像"}
                                 </Button>
+                                <input
+                                    type="file"
+                                    ref={fileInputRef}
+                                    accept="image/jpeg,image/png,image/gif,image/webp"
+                                    className="hidden"
+                                    onChange={handleAvatarChange}
+                                />
                             </CardContent>
                         </Card>
                     </div>

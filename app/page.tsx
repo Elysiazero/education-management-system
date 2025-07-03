@@ -33,6 +33,7 @@ interface UserInterface {
   avatarUrl: string | null
   roles: string[]
   permissions: string[]
+  role: string // 确保有角色字段
 }
 
 interface RecentActivity {
@@ -59,133 +60,153 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true)
   const router = useRouter()
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080/api/v1";
+
+  // 管理员活动数据
+  const adminActivities: RecentActivity[] = [
+    {
+      id: "1",
+      userId: "user1",
+      userName: "张三",
+      userRole: "学生",
+      action: "提交了实验报告",
+      resource: "化学反应动力学实验",
+      timestamp: "2小时前",
+      type: "success",
+    },
+    {
+      id: "2",
+      userId: "user2",
+      userName: "李老师",
+      userRole: "教师",
+      action: "创建了新的实训项目",
+      resource: "Web开发实践",
+      timestamp: "3小时前",
+      type: "info",
+    },
+    {
+      id: "3",
+      userId: "user3",
+      userName: "王五",
+      userRole: "学生",
+      action: "登录失败",
+      resource: "系统认证",
+      timestamp: "4小时前",
+      type: "warning",
+    },
+    {
+      id: "4",
+      userId: "user4",
+      userName: "赵老师",
+      userRole: "教师",
+      action: "上传了教学资源",
+      resource: "React开发指南.pdf",
+      timestamp: "5小时前",
+      type: "success",
+    },
+    {
+      id: "5",
+      userId: "user5",
+      userName: "刘六",
+      userRole: "学生",
+      action: "完成了虚拟实验",
+      resource: "物理光学实验",
+      timestamp: "6小时前",
+      type: "success",
+    },
+  ]
+
+  // 普通用户活动数据
+  const userActivities: RecentActivity[] = [
+    {
+      id: "1",
+      userId: "user1",
+      userName: "当前用户",
+      userRole: "教师",
+      action: "批改了作业",
+      resource: "数学期中考试",
+      timestamp: "2小时前",
+      type: "success",
+    },
+    {
+      id: "2",
+      userId: "user1",
+      userName: "当前用户",
+      userRole: "教师",
+      action: "发布了新作业",
+      resource: "英语阅读理解",
+      timestamp: "1天前",
+      type: "info",
+    },
+    {
+      id: "3",
+      userId: "user1",
+      userName: "当前用户",
+      userRole: "教师",
+      action: "更新了课程资料",
+      resource: "物理实验指导",
+      timestamp: "2天前",
+      type: "success",
+    },
+  ]
+// 角色转换函数
+  const convertRole = (role: string) => {
+    if (role.startsWith("ROLE_")) {
+      return role.substring(5).toLowerCase();
+    }
+    return role.toLowerCase();
+  };
   useEffect(() => {
     console.log("首页组件挂载");
-    const fetchUserData = async () => {
-      const accessToken = localStorage.getItem("accessToken")
-      console.log("获取到的Access Token:", accessToken);
-      if (!accessToken) {
-        router.push("/login")
-        return
+
+    const storedUser = localStorage.getItem("user");
+    const storedRole = localStorage.getItem("userRole"); // 获取单独存储的角色
+
+    // 角色转换
+    const convertedRole = storedRole ? convertRole(storedRole) : '';
+
+    if (storedUser && storedRole) {
+      const userData = JSON.parse(storedUser);
+
+      // 合并角色信息到用户对象
+      const userWithRole = {
+        ...userData,
+        role: convertedRole // 使用转换后的角色
+      };
+
+      setUser(userWithRole);
+      localStorage.setItem('user', JSON.stringify(userWithRole)); // 更新存储的用户信息
+
+      // 根据角色加载不同的最近活动
+      if (convertedRole === "admin") {
+        setRecentActivities(adminActivities);
+      } else {
+        setRecentActivities(userActivities);
       }
 
-      try {
-        // 获取用户信息
-        const userResponse = await fetch(`${API_BASE_URL}/me/profile`, {
-          headers: {
-            Authorization: `Bearer ${accessToken}`
-          }
-        })
+      setLoading(false);
+    } else if (storedUser) {
+      // 如果只有用户信息，尝试从本地存储获取角色
+      const role = localStorage.getItem("userRole");
+      if (role) {
+        const convertedRole = convertRole(role);
+        const userWithRole = {
+          ...JSON.parse(storedUser),
+          role: convertedRole
+        };
+        setUser(userWithRole);
+        localStorage.setItem('user', JSON.stringify(userWithRole));
 
-        if (!userResponse.ok) {
-          throw new Error("获取用户信息失败")
-        }
-
-        const userData = await userResponse.json()
-        setUser(userData)
-
-        // 根据用户角色加载不同的最近活动
-        if (userData.roles.includes("ROLE_ADMIN")) {
-          // 管理员看到的是系统中所有用户的操作记录
-          const adminActivities: RecentActivity[] = [
-            {
-              id: "1",
-              userId: "user1",
-              userName: "张三",
-              userRole: "学生",
-              action: "提交了实验报告",
-              resource: "化学反应动力学实验",
-              timestamp: "2小时前",
-              type: "success",
-            },
-            {
-              id: "2",
-              userId: "user2",
-              userName: "李老师",
-              userRole: "教师",
-              action: "创建了新的实训项目",
-              resource: "Web开发实践",
-              timestamp: "3小时前",
-              type: "info",
-            },
-            {
-              id: "3",
-              userId: "user3",
-              userName: "王五",
-              userRole: "学生",
-              action: "登录失败",
-              resource: "系统认证",
-              timestamp: "4小时前",
-              type: "warning",
-            },
-            {
-              id: "4",
-              userId: "user4",
-              userName: "赵老师",
-              userRole: "教师",
-              action: "上传了教学资源",
-              resource: "React开发指南.pdf",
-              timestamp: "5小时前",
-              type: "success",
-            },
-            {
-              id: "5",
-              userId: "user5",
-              userName: "刘六",
-              userRole: "学生",
-              action: "完成了虚拟实验",
-              resource: "物理光学实验",
-              timestamp: "6小时前",
-              type: "success",
-            },
-          ]
-          setRecentActivities(adminActivities)
+        if (convertedRole === "admin") {
+          setRecentActivities(adminActivities);
         } else {
-          // 教师和学生看到的是自己的学习/教学活动
-          const userActivities: RecentActivity[] = [
-            {
-              id: "1",
-              userId: userData.id,
-              userName: userData.realName,
-              userRole: userData.roles.includes("ROLE_TEACHER") ? "教师" : "学生",
-              action: userData.roles.includes("ROLE_TEACHER") ? "批改了作业" : "完成了虚拟仿真实验",
-              resource: userData.roles.includes("ROLE_TEACHER") ? "数学期中考试" : "化学反应动力学",
-              timestamp: "2小时前",
-              type: "success",
-            },
-            {
-              id: "2",
-              userId: userData.id,
-              userName: userData.realName,
-              userRole: userData.roles.includes("ROLE_TEACHER") ? "教师" : "学生",
-              action: userData.roles.includes("ROLE_TEACHER") ? "发布了新作业" : "提交了实训项目",
-              resource: userData.roles.includes("ROLE_TEACHER") ? "英语阅读理解" : "Web开发实践",
-              timestamp: "1天前",
-              type: "info",
-            },
-            {
-              id: "3",
-              userId: userData.id,
-              userName: userData.realName,
-              userRole: userData.roles.includes("ROLE_TEACHER") ? "教师" : "学生",
-              action: userData.roles.includes("ROLE_TEACHER") ? "更新了课程资料" : "下载了教学资源",
-              resource: userData.roles.includes("ROLE_TEACHER") ? "物理实验指导" : "React开发指南",
-              timestamp: "2天前",
-              type: "success",
-            },
-          ]
-          setRecentActivities(userActivities)
+          setRecentActivities(userActivities);
         }
-      } catch (error) {
-        console.error("获取数据失败:", error)
-        router.push("/login")
-      } finally {
-        setLoading(false)
       }
+      setLoading(false);
+    } else {
+      router.push("/login");
     }
-
-    fetchUserData()
-  }, [router])
+  }, [router]);
 
   const handleLogout = async () => {
     const accessToken = localStorage.getItem("accessToken")
@@ -204,7 +225,7 @@ export default function HomePage() {
       }
     }
 
-    // 修改清除存储部分
+    // 清除存储
     localStorage.removeItem("accessToken");
     localStorage.removeItem("refreshToken");
     localStorage.removeItem("user");
@@ -213,14 +234,14 @@ export default function HomePage() {
   }
 
   const getRoleIcon = () => {
-    if (user?.roles.includes("ROLE_ADMIN")) return <Shield className="w-4 h-4" />
-    if (user?.roles.includes("ROLE_TEACHER")) return <GraduationCap className="w-4 h-4" />
+    if (user?.role === "admin") return <Shield className="w-4 h-4" />
+    if (user?.role === "teacher") return <GraduationCap className="w-4 h-4" />
     return <Users className="w-4 h-4" />
   }
 
   const getRoleLabel = () => {
-    if (user?.roles.includes("ROLE_ADMIN")) return "系统管理员"
-    if (user?.roles.includes("ROLE_TEACHER")) return "教师"
+    if (user?.role === "admin") return "系统管理员"
+    if (user?.role === "teacher") return "教师"
     return "学生"
   }
 
@@ -285,7 +306,7 @@ export default function HomePage() {
       }
     ]
 
-    if (user?.roles.includes("ROLE_ADMIN")) {
+    if (user?.role === "admin") {
       return adminModules
     }
 
@@ -293,7 +314,7 @@ export default function HomePage() {
   }
 
   const getQuickStats = (): QuickStat[] => {
-    if (user?.roles.includes("ROLE_ADMIN")) {
+    if (user?.role === "admin") {
       // 管理员看到的是系统统计数据
       return [
         {
@@ -321,7 +342,7 @@ export default function HomePage() {
           icon: <AlertTriangle className="w-8 h-8 text-red-600" />,
         },
       ]
-    } else if (user?.roles.includes("ROLE_TEACHER")) {
+    } else if (user?.role === "teacher") {
       // 教师看到的是教学相关统计
       return [
         {
@@ -425,7 +446,10 @@ export default function HomePage() {
                     <p className="text-sm font-medium text-gray-900">{user.realName}</p>
                     <div className="flex items-center space-x-1">
                       {getRoleIcon()}
-                      <p className="text-xs text-gray-500">{getRoleLabel()}</p>
+                      <p className="text-xs text-gray-500">
+                        {getRoleLabel()}
+                        <span className="ml-2 text-red-500">(角色: {user.role})</span>
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -444,9 +468,9 @@ export default function HomePage() {
           <div className="mb-8">
             <h2 className="text-3xl font-bold text-gray-900 mb-2">欢迎回来，{user.realName}</h2>
             <p className="text-gray-600">
-              {user.roles.includes("ROLE_ADMIN") && "管理系统运行状态和用户权限"}
-              {user.roles.includes("ROLE_TEACHER") && "管理您的课程和学生实训项目"}
-              {user.roles.includes("ROLE_STUDENT") && "继续您的学习和实训项目"}
+              {user.role === "admin" && "管理系统运行状态和用户权限"}
+              {user.role === "teacher" && "管理您的课程和学生实训项目"}
+              {user.role === "student" && "继续您的学习和实训项目"}
             </p>
           </div>
 
@@ -500,10 +524,10 @@ export default function HomePage() {
               <CardHeader>
                 <CardTitle className="flex items-center">
                   <Activity className="w-5 h-5 mr-2" />
-                  {user.roles.includes("ROLE_ADMIN") ? "系统活动记录" : "最近活动"}
+                  {user.role === "admin" ? "系统活动记录" : "最近活动"}
                 </CardTitle>
                 <CardDescription>
-                  {user.roles.includes("ROLE_ADMIN") ? "系统中所有用户的最新操作记录" : "您最近的操作记录"}
+                  {user.role === "admin" ? "系统中所有用户的最新操作记录" : "您最近的操作记录"}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -513,7 +537,7 @@ export default function HomePage() {
                         <div className={`w-2 h-2 rounded-full ${getActivityTypeColor(activity.type)}`}></div>
                         <div className="flex-1">
                           <p className="text-sm font-medium">
-                            {user.roles.includes("ROLE_ADMIN") ? (
+                            {user.role === "admin" ? (
                                 <>
                                   <span className="text-blue-600">{activity.userName}</span>
                                   <span className="text-gray-500 text-xs ml-1">({activity.userRole})</span>

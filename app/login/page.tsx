@@ -106,7 +106,9 @@ export default function LoginPage() {
       // 保存token到localStorage
       localStorage.setItem('accessToken', data.accessToken)
       localStorage.setItem('refreshToken', data.refreshToken)
-
+      // 保存角色信息
+      localStorage.setItem('userRole', data.roles)
+      console.log("qvanxian",data.roles)
       // 获取用户信息
       const userResponse = await fetch(`http://localhost:8080/api/v1/me/profile`, {
         headers: {
@@ -120,8 +122,14 @@ export default function LoginPage() {
       }
 
       const userData = await userResponse.json()
-      localStorage.setItem('user', JSON.stringify(userData))
-
+      console.log("登录页",userData)
+      // 合并角色信息和用户信息
+      const userWithRole = {
+        ...userData,
+        role: data.roles // 使用登录接口返回的角色
+      }
+      localStorage.setItem('user', JSON.stringify(userWithRole))
+console.log("信息",userWithRole)
       // 跳转到首页
       router.push("/")
     } catch (err: any) {
