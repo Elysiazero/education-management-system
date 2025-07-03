@@ -194,43 +194,64 @@ export default function LoginPage() {
 
   const handleForgotPassword = async () => {
     try {
-      setLoading(true)
-      setError("")
+      setLoading(true);
+      setError("");
 
       // 表单验证
       if (!resetFormData.phone) {
-        setError("请输入手机号")
-        return
+        setError("请输入手机号");
+        return;
       }
 
       if (!resetFormData.smsCode) {
-        setError("请输入验证码")
-        return
+        setError("请输入验证码");
+        return;
       }
+
+      // 调试日志
+      console.log("Sending forgot-password request:", {
+        phoneNumber: resetFormData.phone,
+        smsCode: resetFormData.smsCode
+      });
 
       // 调用忘记密码接口
       const response = await fetch(`${API_BASE_URL}/forgot-password`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json'
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           phoneNumber: resetFormData.phone,
-          smsCode: resetFormData.smsCode
-        })
-      })
+          smsCode: resetFormData.smsCode,
+        }),
+      });
+
+      // 调试日志
+      console.log("Response status:", response.status);
+      const responseText = await response.text();
+      console.log("Response text:", responseText);
 
       if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.message || '验证失败')
+        let errorMessage = "验证失败";
+        try {
+          // 尝试解析错误响应
+          const errorData = responseText ? JSON.parse(responseText) : {};
+          errorMessage = errorData.message || response.statusText || errorMessage;
+        } catch (parseError) {
+          console.error("JSON parse error:", parseError);
+          errorMessage = response.statusText || errorMessage;
+        }
+        throw new Error(errorMessage);
       }
 
-      setSuccessMessage("身份验证成功，请设置新密码")
-      setForgotPasswordStep(2)
+      // 解析成功响应
+      const data = responseText ? JSON.parse(responseText) : {};
+      setSuccessMessage(data.message || "身份验证成功，请设置新密码");
+      setForgotPasswordStep(2);
     } catch (err: any) {
-      setError(err.message || "验证失败，请重试")
+      setError(err.message || "验证失败，请重试");
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
 
