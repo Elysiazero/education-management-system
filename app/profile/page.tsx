@@ -7,7 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Pencil, Save, Shield, GraduationCap, Users, Lock, Key } from "lucide-react"
+import { Pencil, Save, Shield, GraduationCap, Users, Lock } from "lucide-react"
 import { toast } from "sonner"
 
 interface UserInterface {
@@ -16,7 +16,6 @@ interface UserInterface {
     realName: string
     email: string
     phoneNumber: string
-    role: "ROLE_ADMIN" | "ROLE_TEACHER" | "ROLE_STUDENT"
     avatarUrl?: string
     roles: string[]
     permissions: string[]
@@ -40,9 +39,11 @@ export default function ProfilePage() {
     const [confirmPassword, setConfirmPassword] = useState("")
     const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([])
     const router = useRouter()
-    const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080/api/v1/me";
+
+    const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080/api/v1";
+
     useEffect(() => {
-        const token = localStorage.getItem("access_token")
+        const token = localStorage.getItem("accessToken")
         if (!token) {
             router.push("/login")
             return
@@ -54,7 +55,7 @@ export default function ProfilePage() {
 
     const fetchUserProfile = async (token: string) => {
         try {
-            const response = await fetch(`${API_BASE_URL}/profile`, {
+            const response = await fetch(`${API_BASE_URL}/me/profile`, {
                 method: "GET",
                 headers: {
                     "Authorization": `Bearer ${token}`
@@ -79,7 +80,7 @@ export default function ProfilePage() {
 
     const fetchActivityLogs = async (token: string) => {
         try {
-            // 模拟活动日志数据，实际项目中应调用API
+            // 模拟活动日志数据
             const mockLogs = [
                 { id: "1", action: "登录系统", timestamp: "今天 08:45" },
                 { id: "2", action: "完成虚拟仿真实验", timestamp: "昨天 14:23" },
@@ -120,14 +121,14 @@ export default function ProfilePage() {
     const handleSaveProfile = async () => {
         if (!user) return
 
-        const token = localStorage.getItem("access_token")
+        const token = localStorage.getItem("accessToken")
         if (!token) {
             router.push("/login")
             return
         }
 
         try {
-            const response = await fetch(`${API_BASE_URL}profile`, {
+            const response = await fetch(`${API_BASE_URL}/me/profile`, {
                 method: "PUT",
                 headers: {
                     "Content-Type": "application/json",
@@ -141,7 +142,8 @@ export default function ProfilePage() {
             })
 
             if (!response.ok) {
-                throw new Error("更新个人信息失败")
+                const errorData = await response.json()
+                throw new Error(errorData.message || "更新个人信息失败")
             }
 
             const updatedUser = {
@@ -154,33 +156,41 @@ export default function ProfilePage() {
             setUser(updatedUser)
             setIsEditing(false)
             toast.success("个人信息更新成功")
-        } catch (error) {
+        } catch (error: any) {
             console.error("更新个人信息错误:", error)
-            toast.error("更新个人信息失败")
+            toast.error(error.message || "更新个人信息失败")
         }
     }
 
     const handleChangePassword = async () => {
+        // 验证新密码是否匹配
         if (newPassword !== confirmPassword) {
             toast.error("新密码和确认密码不一致")
             return
         }
 
-        if (newPassword.length < 8) {
-            toast.error("密码长度至少为8位")
+        // 验证新密码长度
+        if (newPassword.length < 8 || newPassword.length > 32) {
+            toast.error("密码长度必须在8到32位之间")
             return
         }
 
-        const token = localStorage.getItem("access_token")
+        // 验证旧密码是否输入
+        if (!oldPassword) {
+            toast.error("请输入当前密码")
+            return
+        }
+
+        const token = localStorage.getItem("accessToken")
         if (!token) {
             router.push("/login")
             return
         }
 
         try {
-            // 注意：根据接口文档，修改密码接口可能需要调整
-            const response = await fetch(`${API_BASE_URL}/password`, {
-                method: "PUT",
+            // 使用正确的修改密码接口
+            const response = await fetch(`${API_BASE_URL}/me/password`, {
+                method: "PUT", // 使用PUT方法
                 headers: {
                     "Content-Type": "application/json",
                     "Authorization": `Bearer ${token}`
@@ -192,17 +202,19 @@ export default function ProfilePage() {
             })
 
             if (!response.ok) {
-                throw new Error("修改密码失败")
+                const errorData = await response.json()
+                throw new Error(errorData.message || "修改密码失败")
             }
 
+            // 密码修改成功后重置状态
             setIsEditingPassword(false)
             setOldPassword("")
             setNewPassword("")
             setConfirmPassword("")
             toast.success("密码修改成功")
-        } catch (error) {
+        } catch (error: any) {
             console.error("修改密码错误:", error)
-            toast.error("修改密码失败，请检查旧密码是否正确")
+            toast.error(error.message || "修改密码失败，请检查当前密码")
         }
     }
 
@@ -212,7 +224,7 @@ export default function ProfilePage() {
 
     return (
         <div className="min-h-screen bg-gray-50">
-            {/* Header - 与主页保持一致 */}
+            {/* Header */}
             <header className="bg-white shadow-sm border-b">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex justify-between items-center h-16">
@@ -228,8 +240,10 @@ export default function ProfilePage() {
                                 <div className="hidden md:block">
                                     <p className="text-sm font-medium text-gray-900">{user.realName}</p>
                                     <div className="flex items-center space-x-1">
-                                        {getRoleIcon(user.role)}
-                                        <p className="text-xs text-gray-500">{getRoleLabel(user.role)}</p>
+                                        {user.roles.length > 0 && getRoleIcon(user.roles[0])}
+                                        <p className="text-xs text-gray-500">
+                                            {user.roles.length > 0 ? getRoleLabel(user.roles[0]) : "用户"}
+                                        </p>
                                     </div>
                                 </div>
                             </div>
@@ -253,8 +267,10 @@ export default function ProfilePage() {
                                 </Avatar>
                                 <CardTitle className="text-xl">{user.realName}</CardTitle>
                                 <div className="flex items-center space-x-1 text-gray-600">
-                                    {getRoleIcon(user.role)}
-                                    <span>{getRoleLabel(user.role)}</span>
+                                    {user.roles.length > 0 && getRoleIcon(user.roles[0])}
+                                    <span>
+                                        {user.roles.length > 0 ? getRoleLabel(user.roles[0]) : "用户"}
+                                    </span>
                                 </div>
                             </CardHeader>
 
@@ -270,8 +286,8 @@ export default function ProfilePage() {
                                 </div>
 
                                 <div>
-                                    <Label className="text-gray-500">邮箱</Label>
-                                    <p className="font-medium">{user.email}</p>
+                                    <Label className="text-gray-500">手机号</Label>
+                                    <p className="font-medium">{phoneNumber || "未设置"}</p>
                                 </div>
 
                                 <div>
@@ -359,8 +375,10 @@ export default function ProfilePage() {
                                                         type="password"
                                                         value={oldPassword}
                                                         onChange={(e) => setOldPassword(e.target.value)}
+                                                        placeholder="请输入当前密码"
                                                     />
                                                 </div>
+
                                                 <div>
                                                     <Label htmlFor="newPassword">新密码</Label>
                                                     <Input
@@ -368,6 +386,7 @@ export default function ProfilePage() {
                                                         type="password"
                                                         value={newPassword}
                                                         onChange={(e) => setNewPassword(e.target.value)}
+                                                        placeholder="8-32位字符"
                                                     />
                                                 </div>
                                                 <div>
@@ -377,6 +396,7 @@ export default function ProfilePage() {
                                                         type="password"
                                                         value={confirmPassword}
                                                         onChange={(e) => setConfirmPassword(e.target.value)}
+                                                        placeholder="再次输入新密码"
                                                     />
                                                 </div>
                                                 <div className="flex gap-2">
@@ -396,7 +416,10 @@ export default function ProfilePage() {
                                                         <p className="font-medium">密码</p>
                                                         <p className="text-sm text-gray-500">上次修改：3个月前</p>
                                                     </div>
-                                                    <Button variant="outline" onClick={() => setIsEditingPassword(true)}>
+                                                    <Button
+                                                        variant="outline"
+                                                        onClick={() => setIsEditingPassword(true)}
+                                                    >
                                                         更改密码
                                                     </Button>
                                                 </div>
