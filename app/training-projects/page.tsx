@@ -157,9 +157,10 @@ export default function TrainingProjectsPage() {
         }
         const currentUser = JSON.parse(userData);
         setUser(currentUser);
-
+        console.log(currentUser);
         // 获取项目列表
-        const projectsResponse = await fetch(`${API_BASE_URL}/projects`, {
+        const userId=currentUser.id;
+        const projectsResponse = await fetch(`${API_BASE_URL}/user/${userId}`, {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
           }
@@ -308,7 +309,7 @@ export default function TrainingProjectsPage() {
 
       // 添加团队成员
       for (const member of selectedProject.teams[0].members) {
-        await fetch(`${API_BASE_URL}/teaching/team-members`, {
+        await fetch(`${API_BASE_URL}/team-members`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
