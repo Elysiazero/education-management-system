@@ -41,7 +41,7 @@ export default function ProfilePage() {
     const [isUploading, setIsUploading] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const router = useRouter()
-
+    const [avatarUrl, setAvatarUrl] = useState("")
     const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080/api/v1";
 
     useEffect(() => {
@@ -249,19 +249,20 @@ export default function ProfilePage() {
         }
 
         try {
-            // 创建FormData并添加文件
-            const formData = new FormData()
-            formData.append("avatar", file)
-            formData.append("realName", realName)
-            formData.append("email", email)
-            formData.append("phoneNumber", phoneNumber)
+            // 创建图片URL（用于预览）
+            const objectUrl = URL.createObjectURL(file)
+            setAvatarUrl(objectUrl)  // 设置预览URL
 
-            const response = await fetch(`${API_BASE_URL}/me/profile`, {
+            // 上传头像URL到服务器
+            const response = await fetch(`${API_BASE_URL}/me/avatar`, {
                 method: "PUT",
                 headers: {
+                    "Content-Type": "application/json",
                     "Authorization": `Bearer ${token}`
                 },
-                body: formData
+                body: JSON.stringify({
+                    avatarUrl: objectUrl  // 改为传递URL而不是文件
+                })
             })
 
             if (!response.ok) {
@@ -277,7 +278,6 @@ export default function ProfilePage() {
             toast.error(error.message || "头像更新失败")
         } finally {
             setIsUploading(false)
-            // 重置文件输入
             if (fileInputRef.current) {
                 fileInputRef.current.value = ""
             }
@@ -326,7 +326,7 @@ export default function ProfilePage() {
                         <Card className="sticky top-8">
                             <CardHeader className="items-center">
                                 <Avatar className="w-24 h-24 mb-4">
-                                    <AvatarImage src={user.avatarUrl || "/placeholder.svg"} />
+                                    <AvatarImage src={avatarUrl || user.avatarUrl || "/placeholder.svg"} />
                                     <AvatarFallback className="text-2xl">
                                         {user.realName.charAt(0)}
                                     </AvatarFallback>
