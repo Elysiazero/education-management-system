@@ -159,7 +159,7 @@ export default function TrainingProjectsPage() {
         setUser(currentUser);
 
         // 获取项目列表
-        const projectsResponse = await fetch(`${API_BASE_URL}/teaching/projects`, {
+        const projectsResponse = await fetch(`${API_BASE_URL}/projects`, {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
           }
@@ -211,7 +211,7 @@ export default function TrainingProjectsPage() {
     try {
       setLoading(true);
 
-      const response = await fetch(`${API_BASE_URL}/teaching/projects/${projectId}`, {
+      const response = await fetch(`${API_BASE_URL}/projects/${projectId}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
         }
@@ -225,7 +225,7 @@ export default function TrainingProjectsPage() {
       setSelectedProject(projectDetails);
 
       // 获取项目讨论
-      const discussionsResponse = await fetch(`${API_BASE_URL}/teaching/project-discussions/project/${projectId}`, {
+      const discussionsResponse = await fetch(`${API_BASE_URL}/project-discussions/project/${projectId}`, {
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
         }
@@ -248,7 +248,7 @@ export default function TrainingProjectsPage() {
     try {
       setLoading(true);
 
-      const response = await fetch(`${API_BASE_URL}/teaching/projects`, {
+      const response = await fetch(`${API_BASE_URL}/projects`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
@@ -285,7 +285,7 @@ export default function TrainingProjectsPage() {
     try {
       setLoading(true);
 
-      const response = await fetch(`${API_BASE_URL}/teaching/teams`, {
+      const response = await fetch(`${API_BASE_URL}/teams`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
@@ -345,7 +345,7 @@ export default function TrainingProjectsPage() {
     try {
       setLoading(true);
 
-      const response = await fetch(`${API_BASE_URL}/teaching/tasks`, {
+      const response = await fetch(`${API_BASE_URL}/tasks`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
@@ -391,7 +391,7 @@ export default function TrainingProjectsPage() {
     try {
       setLoading(true);
 
-      const response = await fetch(`${API_BASE_URL}/teaching/tasks/${taskId}/status`, {
+      const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/status`, {
         method: 'PUT',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
@@ -432,7 +432,7 @@ export default function TrainingProjectsPage() {
     try {
       setLoading(true);
 
-      const response = await fetch(`${API_BASE_URL}/teaching/tasks/${currentTaskForSubmission.id}/submissions`, {
+      const response = await fetch(`${API_BASE_URL}/tasks/${currentTaskForSubmission.id}/submissions`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
@@ -487,7 +487,7 @@ export default function TrainingProjectsPage() {
     try {
       setLoading(true);
 
-      const response = await fetch(`${API_BASE_URL}/teaching/project-discussions`, {
+      const response = await fetch(`${API_BASE_URL}/project-discussions`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('accessToken')}`,
