@@ -173,7 +173,7 @@ export default function TrainingProjectsPage() {
         setProjects(projectsData);
 
         // 获取班级列表
-        const classesResponse = await fetch(`${API_BASE_URL}/teaching/classes`, {
+        const classesResponse = await fetch(`${API_BASE_URL}/admin/classes`, {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
           }
@@ -185,7 +185,8 @@ export default function TrainingProjectsPage() {
         }
 
         // 获取班级成员（用户列表）
-        const usersResponse = await fetch(`${API_BASE_URL}/teaching/users`, {
+        let classId;
+        const usersResponse = await fetch(`${API_BASE_URL}/classes/${classId}`, {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('accessToken')}`
           }
