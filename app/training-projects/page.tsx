@@ -863,31 +863,65 @@ export default function TrainingProjectsPage() {
       setLoading(false);
     }
   };
-// 获取用户团队接口方法
+/// 获取用户团队信息（根据用户角色）
+  // 获取用户团队信息（根据用户角色）
   const fetchUserTeam = async (projectId: number) => {
     if (!user) return null;
 
     try {
       const token = localStorage.getItem("accessToken");
-      const response = await fetch(
-          `${API_BASE_URL}/team-members/user/${user.id}`,
-          {
-            headers: { Authorization: `Bearer ${token}` }
-          }
-      );
 
+      // 学生：获取当前项目中的团队
+      if (user.role === "student") {
+        // 获取用户在项目中的团队ID
+        const response = await fetch(
+            `${API_BASE_URL}/team-members/user/${user.id}`,
+            {
+              headers: { Authorization: `Bearer ${token}` }
+            }
+        );
 
-      if (response.ok) {
-        const team = await response.json();
-        setUserTeam(team);
-        return team;
+        if (!response.ok) return null;
+
+        const teamId = await response.json();
+
+        // 获取团队详细信息
+        if (teamId) {
+          const teamResponse = await fetch(
+              `${API_BASE_URL}/teams/${teamId}`,
+              {
+                headers: { Authorization: `Bearer ${token}` }
+              }
+          );
+
+          if (!teamResponse.ok) return null;
+          return [await teamResponse.json()]; // 返回包含单个团队的数组
+        }
+
+        return []; // 返回空数组表示没有加入团队
       }
+      // 教师：获取项目下的所有团队
+      else if (user.role === "teacher") {
+        const response = await fetch(
+            `${API_BASE_URL}/teams/project/${projectId}`,
+            {
+              headers: { Authorization: `Bearer ${token}` }
+            }
+        );
+
+        if (!response.ok) return null;
+
+        return await response.json(); // 返回所有团队数组
+      }
+
       return null;
     } catch (error) {
-      console.error("获取用户团队失败:", error);
+      console.error("获取团队信息失败:", error);
       return null;
     }
   };
+
+
   // 获取用户团队
   const getUserTeam = (project: ProjectDetailDTO) => {
     if (!user) return null;
