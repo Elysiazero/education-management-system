@@ -180,7 +180,7 @@ const createExperiment = async (newExperiment: any): Promise<Experiment> => {
   return response.json();
 };
 
-// 发布实验任务
+// 指派实验任务
 const publishAssignment = async (assignmentData: any): Promise<Assignment> => {
   const token = getAuthToken();
   if (!token) throw new Error('用户未登录');
@@ -236,7 +236,197 @@ const gradeReport = async (reportId: string, gradeData: any): Promise<Report> =>
   if (!response.ok) throw new Error('评分失败');
   return response.json();
 };
+// 更新实验信息
+const updateExperiment = async (id: string, updateData: any): Promise<Experiment> => {
+  const token = getAuthToken();
+  if (!token) throw new Error('用户未登录');
 
+  const response = await fetch(`${API_BASE_URL}/experiments/${id}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify(updateData)
+  });
+
+  if (!response.ok) throw new Error('更新实验失败');
+  return response.json();
+};
+
+// 删除实验
+const deleteExperiment = async (id: string): Promise<void> => {
+  const token = getAuthToken();
+  if (!token) throw new Error('用户未登录');
+
+  const response = await fetch(`${API_BASE_URL}/experiments/${id}`, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) throw new Error('删除实验失败');
+};
+
+// 获取实验详情
+const getExperimentById = async (id: string): Promise<Experiment> => {
+  const token = getAuthToken();
+  if (!token) throw new Error('用户未登录');
+
+  const response = await fetch(`${API_BASE_URL}/experiments/${id}`, {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) throw new Error('获取实验详情失败');
+  return response.json();
+};
+
+// 分页查询实验
+const fetchExperimentsPaginated = async (
+    page: number = 0,
+    size: number = 10,
+    title?: string,
+    subject?: string
+): Promise<Experiment[]> => {
+  const token = getAuthToken();
+  if (!token) throw new Error('用户未登录');
+
+  const params = new URLSearchParams({
+    page: page.toString(),
+    size: size.toString()
+  });
+
+  if (title) params.append('title', title);
+  if (subject) params.append('subject', subject);
+
+  const response = await fetch(`${API_BASE_URL}/experiments?${params.toString()}`, {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) throw new Error('获取实验列表失败');
+
+  const responseData = await response.json();
+  return responseData?.data?.records || [];
+};
+
+// 获取我的任务列表（学生）
+const fetchMyTasks = async (status?: string): Promise<Assignment[]> => {
+  const token = getAuthToken();
+  if (!token) throw new Error('用户未登录');
+
+  const params = new URLSearchParams();
+  if (status) params.append('status', status);
+
+  const response = await fetch(`${API_BASE_URL}/experiment-tasks/my-tasks?${params.toString()}`, {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) throw new Error('获取任务列表失败');
+
+  const responseData = await response.json();
+  return responseData?.data || [];
+};
+
+// 获取教师发布的任务
+const fetchTeacherTasks = async (
+    classId?: string,
+    experimentId?: string
+): Promise<Assignment[]> => {
+  const token = getAuthToken();
+  if (!token) throw new Error('用户未登录');
+
+  const params = new URLSearchParams();
+  if (classId) params.append('classId', classId);
+  if (experimentId) params.append('experimentId', experimentId);
+
+  const response = await fetch(`${API_BASE_URL}/experiment-tasks/teacher-tasks?${params.toString()}`, {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) throw new Error('获取教师任务失败');
+
+  const responseData = await response.json();
+  return responseData?.data || [];
+};
+
+// 获取任务详情
+const getTaskById = async (id: string): Promise<Assignment> => {
+  const token = getAuthToken();
+  if (!token) throw new Error('用户未登录');
+
+  const response = await fetch(`${API_BASE_URL}/experiment-tasks/${id}`, {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) throw new Error('获取任务详情失败');
+  return response.json();
+};
+
+// 获取我的实验报告（学生）
+const getMyReport = async (taskId: string): Promise<Report> => {
+  const token = getAuthToken();
+  if (!token) throw new Error('用户未登录');
+
+  const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/my-report`, {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) throw new Error('获取实验报告失败');
+  return response.json();
+};
+
+// 保存/提交实验报告（扩展原有方法）
+const saveOrSubmitReport = async (
+    taskId: string,
+    content: string,
+    isSubmitted: boolean = false
+): Promise<Report> => {
+  const token = getAuthToken();
+  if (!token) throw new Error('用户未登录');
+
+  const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/my-report`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
+    body: JSON.stringify({
+      manualContent: content,
+      isSubmitted
+    })
+  });
+
+  if (!response.ok) throw new Error(isSubmitted ? '提交报告失败' : '保存报告失败');
+  return response.json();
+};
+
+// 教师获取指定报告
+const getReportById = async (reportId: string): Promise<Report> => {
+  const token = getAuthToken();
+  if (!token) throw new Error('用户未登录');
+
+  const response = await fetch(`${API_BASE_URL}/reports/${reportId}`, {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
+
+  if (!response.ok) throw new Error('获取报告失败');
+  return response.json();
+};
 function VirtualLabPage() {
   const router = useRouter();
 

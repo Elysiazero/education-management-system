@@ -422,12 +422,13 @@ export default function TrainingProjectsPage() {
   };
 
   // 创建团队
+  // 修改后的创建团队逻辑
   const handleCreateTeam = async () => {
     if (!selectedProject) return;
 
     try {
       setLoading(true);
-      const token = localStorage.getItem("token");
+      const token = localStorage.getItem("accessToken");
 
       // 获取表单值
       const teamName = (document.getElementById('teamName') as HTMLInputElement)?.value || "新团队";
@@ -458,12 +459,14 @@ export default function TrainingProjectsPage() {
       });
 
       if (!response.ok) {
-        throw new Error("创建团队失败");
+        const errorData = await response.json();
+        throw new Error(errorData.message || "创建团队失败");
       }
 
       const newTeam = await response.json();
       console.log("创建的团队响应数据:", newTeam);
 
+      // 更新项目详情中的团队列表
       const updatedProject = {
         ...selectedProject,
         teams: [...(selectedProject.teams || []), newTeam]
@@ -472,6 +475,9 @@ export default function TrainingProjectsPage() {
       setSelectedProject(updatedProject);
       setShowCreateTeam(false);
       setTeamMembers([]); // 重置选择的成员
+
+      // 更新用户团队信息
+      await fetchUserTeam(selectedProject.id);
     } catch (err: any) {
       console.error("创建团队失败:", err);
       setError(err.message || "创建团队失败");
@@ -813,12 +819,13 @@ export default function TrainingProjectsPage() {
   };
 
   // 指派任务给团队
+  // 修改后的指派任务逻辑
   const handleAssignTaskToTeam = async () => {
     if (!currentTeamForTaskAssignment || !selectedTaskForAssignment) return;
 
     try {
       setLoading(true);
-      const token = localStorage.getItem("token");
+      const token = localStorage.getItem("accessToken");
 
       console.log(`指派任务: taskId=${selectedTaskForAssignment} 给团队 teamId=${currentTeamForTaskAssignment.id}`);
       const response = await fetch(`${API_BASE_URL}/tasks/${selectedTaskForAssignment}/assign-to-team/${currentTeamForTaskAssignment.id}`, {
@@ -829,7 +836,8 @@ export default function TrainingProjectsPage() {
       });
 
       if (!response.ok) {
-        throw new Error("指派任务失败");
+        const errorData = await response.json();
+        throw new Error(errorData.message || "指派任务失败");
       }
 
       console.log("指派任务成功");
@@ -839,7 +847,8 @@ export default function TrainingProjectsPage() {
         if (task.id === selectedTaskForAssignment) {
           return {
             ...task,
-            assignedToTeamId: currentTeamForTaskAssignment.id
+            assignedToTeamId: currentTeamForTaskAssignment.id,
+            assigneeId: null // 清除个人分配
           };
         }
         return task;
@@ -863,7 +872,7 @@ export default function TrainingProjectsPage() {
       setLoading(false);
     }
   };
-/// 获取用户团队信息（根据用户角色）
+
   // 获取用户团队信息（根据用户角色）
   const fetchUserTeam = async (projectId: number) => {
     if (!user) return null;
@@ -1329,6 +1338,7 @@ export default function TrainingProjectsPage() {
                       const isMyTeam = user && team.members.some(m => m.id === user.id);
 
                       return (
+                          // 团队卡片展示
                           <Card key={team.id} className={isMyTeam ? "ring-2 ring-blue-500 bg-blue-50/30" : ""}>
                             <CardHeader>
                               <CardTitle className="flex items-center justify-between">
@@ -1345,7 +1355,7 @@ export default function TrainingProjectsPage() {
                                   {team.members.length}人
                                 </Badge>
                               </CardTitle>
-                              <CardDescription>项目ID: {team.projectId}</CardDescription>
+                              <CardDescription>团队ID: {team.id}</CardDescription>
                             </CardHeader>
                             <CardContent>
                               <div className="space-y-4">
@@ -1364,12 +1374,12 @@ export default function TrainingProjectsPage() {
                                         <div key={member.id} className="flex items-center space-x-2 text-sm">
                                           <Avatar className="w-6 h-6">
                                             <AvatarFallback className="text-xs">
-                                              {member.realName.charAt(0).toUpperCase()}
+                                              {member.realName?.charAt(0).toUpperCase() || "U"}
                                             </AvatarFallback>
                                           </Avatar>
                                           <span className={member.id === user?.id ? "font-medium text-blue-600" : "text-gray-700"}>
-                                            {member.id === user?.id ? `我 (${member.realName})` : member.realName}
-                                          </span>
+                {member.id === user?.id ? `我 (${member.realName || member.username})` : member.realName || member.username}
+              </span>
                                           {team.leaderId === member.id && (
                                               <Badge variant="outline" className="text-xs">
                                                 组长
@@ -1512,11 +1522,20 @@ export default function TrainingProjectsPage() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
+                      // 修改后的任务卡片展示
                       {visibleTasks.map(task => {
                         const isMyTask = task.assigneeId === user?.id;
                         const isTeamTask = task.assignedToTeamId && userTeam && task.assignedToTeamId === userTeam.id;
                         const canSubmit = (isMyTask || (isTeamTask && isUserTeamLeader));
                         const mySubmission = task.submissions?.find(sub => sub.userId === user?.id);
+
+                        // 获取负责人信息
+                        const assignee = classMembers.find(m => m.id === task.assigneeId) ||
+                            { realName: "未分配", username: "未分配" };
+
+                        // 获取团队信息
+                        const assignedTeam = selectedProject?.teams?.find(t => t.id === task.assignedToTeamId) ||
+                            { name: "未分配团队" };
 
                         return (
                             <div
@@ -1545,16 +1564,16 @@ export default function TrainingProjectsPage() {
                                 </div>
                                 <p className="text-sm text-gray-600 mb-2">{task.description}</p>
                                 <div className="flex items-center space-x-4 text-xs text-gray-500">
-                                  <span>截止: {task.dueDate}</span>
+                                  <span>截止: {new Date(task.dueDate).toLocaleDateString()}</span>
                                   {task.assigneeId && (
                                       <span>
-                                        负责人: {classMembers.find(m => m.id === task.assigneeId)?.realName || "未指定"}
-                                      </span>
+              负责人: {assignee.realName || assignee.username}
+            </span>
                                   )}
                                   {task.assignedToTeamId && (
                                       <span>
-                                        团队: {selectedProject.teams?.find(t => t.id === task.assignedToTeamId)?.name || "未指定"}
-                                      </span>
+              团队: {assignedTeam.name}
+            </span>
                                   )}
                                 </div>
 
@@ -1568,7 +1587,9 @@ export default function TrainingProjectsPage() {
                                                 <Check className="w-4 h-4 text-green-600 mr-2" />
                                                 <span className="text-sm font-medium text-green-700">已提交</span>
                                               </div>
-                                              <span className="text-xs text-gray-500">{mySubmission.submittedAt}</span>
+                                              <span className="text-xs text-gray-500">
+                    {new Date(mySubmission.submittedAt).toLocaleString()}
+                  </span>
                                             </div>
                                             <p className="mt-2 text-sm text-gray-700">{mySubmission.content}</p>
                                           </div>
