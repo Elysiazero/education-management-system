@@ -1096,35 +1096,29 @@ export default function TrainingProjectsPage() {
       return [];
     }
   };
-  // 获取学生可见的任务
+  // 获取任务（修改后）
   const getVisibleTasksForStudent = () => {
     if (!user || !selectedProject) return [];
 
     const userTeam = getUserTeam(selectedProject);
     const isLeader = userTeam ? isTeamLeader(userTeam) : false;
 
-    return (selectedProject.tasks || []).filter(task => {
-      // 个人任务
-      if (task.assigneeId === user.id) return true;
-
-      // 团队任务且用户是组长
-      if (task.assignedToTeamId && userTeam && task.assignedToTeamId === userTeam.id && isLeader) return true;
-
-      return false;
-    });
+    // 学生可以看到所有任务，不再过滤
+    return selectedProject.tasks || [];
   };
 
   if (!user) {
     return <div className="flex justify-center items-center h-screen">加载中...</div>;
   }
 
+  // 在项目详情页
   if (selectedProject) {
     const userTeam = getUserTeam(selectedProject);
     const isUserTeamLeader = userTeam ? isTeamLeader(userTeam) : false;
 
-    // 学生只能看到自己的任务或团队任务（如果是组长）
+    // 学生可以看到所有任务
     const visibleTasks = user.role === "student"
-        ? getVisibleTasksForStudent()
+        ? getVisibleTasksForStudent() // 返回所有任务
         : selectedProject.tasks || [];
 
     const completedTasks = visibleTasks.filter(task => task.status === "DONE").length;
@@ -1255,18 +1249,26 @@ export default function TrainingProjectsPage() {
                                 <div>
                                   <span className="font-medium">团队成员:</span>
                                   <div className="ml-2 mt-1 flex flex-wrap gap-1">
-                                    {userTeam.members.map((member, index) => (
-                                        <Badge key={index} variant="outline" className="text-xs bg-blue-100 text-blue-800">
-                                          {member.id === user.id ? "我" : member.realName}
-                                        </Badge>
-                                    ))}
+                                    {userTeam.members.length === 0 ? (
+                                        <span className="text-xs text-gray-500">暂无成员</span>
+                                    ) : (
+                                        userTeam.members.map(member => (
+                                            <Badge
+                                                key={member.id}
+                                                variant="outline"
+                                                className="text-xs bg-blue-100 text-blue-800"
+                                            >
+                                              {member.id === user.id ? "我" : member.realName}
+                                            </Badge>
+                                        ))
+                                    )}
                                   </div>
                                 </div>
                                 <div>
                                   <span className="font-medium">团队组长:</span>
                                   <span className="ml-2 text-blue-700">
-                                    {userTeam.members.find(m => m.id === userTeam.leaderId)?.realName || "未指定"}
-                                  </span>
+            {userTeam.members.find(m => m.id === userTeam.leaderId)?.realName || "未指定"}
+          </span>
                                 </div>
                               </div>
 
@@ -1443,7 +1445,6 @@ export default function TrainingProjectsPage() {
                     </div>
                   </div>
 
-                  // 团队卡片
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {(selectedProject?.teams || []).map(team => {
                       // 确保team对象存在
@@ -1455,6 +1456,7 @@ export default function TrainingProjectsPage() {
                       // 确保leaderId存在
                       const leaderId = team.leaderId || 0;
 
+                      // 修复：使用正确的成员检查逻辑
                       const isMyTeam = user && safeMembers.some(m => m?.id === user?.id);
 
                       return (
@@ -1490,7 +1492,7 @@ export default function TrainingProjectsPage() {
                                   <Progress value={team.progress || 0} />
                                 </div>
 
-                                {/* 团队成员 - 使用safeMembers */}
+                                {/* 团队成员 - 修复：确保所有成员都被渲染 */}
                                 <div>
                                   <p className="text-sm font-medium mb-2">团队成员</p>
                                   <div className="space-y-1">
@@ -1498,6 +1500,7 @@ export default function TrainingProjectsPage() {
                                       // 确保member对象存在
                                       if (!member) return null;
 
+                                      // 修复：使用member.id作为key，确保唯一性
                                       return (
                                           <div key={member.id} className="flex items-center space-x-2 text-sm">
                                             <Avatar className="w-6 h-6">
@@ -1652,8 +1655,9 @@ export default function TrainingProjectsPage() {
                     </div>
                   </CardHeader>
                   <CardContent>
+                    // 修改后的任务卡片展示
                     <div className="space-y-4">
-                      // 修改后的任务卡片展示
+
                       {visibleTasks.map(task => {
                         const isMyTask = task.assigneeId === user?.id;
                         const isTeamTask = task.assignedToTeamId && userTeam && task.assignedToTeamId === userTeam.id;
