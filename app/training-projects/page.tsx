@@ -319,23 +319,16 @@ export default function TrainingProjectsPage() {
       console.log("项目详情数据:", projectDetail);
       setSelectedProject(projectDetail);
 
-      // 如果是学生，获取可见任务
-      if (user?.role === "student") {
-        const visibleTasks = await getVisibleTasksForStudent;
-        setProjectTasks(visibleTasks);
-      }
-      // 如果是教师/管理员，获取所有任务
-      else {
-        const tasksResponse = await fetch(
-            `${API_BASE_URL}/teaching/tasks/project/${projectId}`,
+
+      const tasksResponse = await fetch(
+            `${API_BASE_URL}/tasks/project/${projectId}`,
             { headers: { Authorization: `Bearer ${token}` } }
         );
-
+      console.log(tasksResponse);
         if (tasksResponse.ok) {
           const tasks = await tasksResponse.json();
           setProjectTasks(tasks);
         }
-      }
 
       // 获取用户团队（学生和教师都需要）
       await fetchUserTeam(projectId);
@@ -877,11 +870,12 @@ export default function TrainingProjectsPage() {
     try {
       const token = localStorage.getItem("accessToken");
       const response = await fetch(
-          `${API_BASE_URL}/teaching/team-members/project/${projectId}/user/${user.id}`,
+          `${API_BASE_URL}/team-members/user/${user.id}`,
           {
             headers: { Authorization: `Bearer ${token}` }
           }
       );
+
 
       if (response.ok) {
         const team = await response.json();
