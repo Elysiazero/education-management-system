@@ -158,7 +158,8 @@ export default function TrainingProjectsPage() {
   const [selectedTaskForAssignment, setSelectedTaskForAssignment] = useState<number | null>(null);
   const [creatorNames, setCreatorNames] = useState<Record<number, string>>({});
   const router = useRouter();
-
+  const [userTeam, setUserTeam] = useState<ProjectTeamDTO | null>(null);
+  const [projectTasks, setProjectTasks] = useState<ProjectTaskDTO[]>([]);
   useEffect(() => {
     const fetchUserAndData = async () => {
       try {
@@ -317,6 +318,28 @@ export default function TrainingProjectsPage() {
       const projectDetail = await projectResponse.json();
       console.log("项目详情数据:", projectDetail);
       setSelectedProject(projectDetail);
+
+      // 如果是学生，获取可见任务
+      if (user?.role === "student") {
+        const visibleTasks = await getVisibleTasksForStudent;
+        setProjectTasks(visibleTasks);
+      }
+      // 如果是教师/管理员，获取所有任务
+      else {
+        const tasksResponse = await fetch(
+            `${API_BASE_URL}/teaching/tasks/project/${projectId}`,
+            { headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        if (tasksResponse.ok) {
+          const tasks = await tasksResponse.json();
+          setProjectTasks(tasks);
+        }
+      }
+
+      // 获取用户团队（学生和教师都需要）
+      await fetchUserTeam(projectId);
+
 
       // 获取项目评论
       const commentsResponse = await fetch(`${API_BASE_URL}/project-discussions/project/${projectId}`, {
@@ -847,7 +870,30 @@ export default function TrainingProjectsPage() {
       setLoading(false);
     }
   };
+// 获取用户团队接口方法
+  const fetchUserTeam = async (projectId: number) => {
+    if (!user) return null;
 
+    try {
+      const token = localStorage.getItem("accessToken");
+      const response = await fetch(
+          `${API_BASE_URL}/teaching/team-members/project/${projectId}/user/${user.id}`,
+          {
+            headers: { Authorization: `Bearer ${token}` }
+          }
+      );
+
+      if (response.ok) {
+        const team = await response.json();
+        setUserTeam(team);
+        return team;
+      }
+      return null;
+    } catch (error) {
+      console.error("获取用户团队失败:", error);
+      return null;
+    }
+  };
   // 获取用户团队
   const getUserTeam = (project: ProjectDetailDTO) => {
     if (!user) return null;
@@ -874,7 +920,34 @@ export default function TrainingProjectsPage() {
   const isTeamLeader = (team: ProjectTeamDTO) => {
     return user && team.leaderId === user.id;
   };
+// 获取学生可见的任务
+  const fetchTasksForStudent = async (projectId: number) => {
+    if (!user) return [];
 
+    try {
+      const token = localStorage.getItem("accessToken");
+      const response = await fetch(
+          `${API_BASE_URL}/teaching/tasks/project/${projectId}`,
+          {
+            headers: { Authorization: `Bearer ${token}` }
+          }
+      );
+
+      if (response.ok) {
+        const tasks = await response.json();
+        setProjectTasks(tasks);
+
+        // 获取用户团队
+        const team = await fetchUserTeam(projectId);
+        const isLeader = team ? isTeamLeader(team) : false;
+
+      }
+      return [];
+    } catch (error) {
+      console.error("获取任务失败:", error);
+      return [];
+    }
+  };
   // 获取学生可见的任务
   const getVisibleTasksForStudent = () => {
     if (!user || !selectedProject) return [];
