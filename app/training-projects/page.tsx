@@ -172,7 +172,7 @@ export default function TrainingProjectsPage() {
         setUser(currentUser);
         console.log("当前用户信息:", currentUser);
 
-        const token = localStorage.getItem("token");
+        const token = localStorage.getItem("accessToken");
 
         // 根据角色获取项目
         let projectsUrl = `${API_BASE_URL}/projects`;
@@ -183,6 +183,8 @@ export default function TrainingProjectsPage() {
         }
 
         console.log("获取项目列表URL:", projectsUrl);
+        console.log(token);
+        console.log(localStorage.getItem("accessToken"))
         const projectsResponse = await fetch(projectsUrl, {
           headers: {
             "Authorization": `Bearer ${token}`
@@ -296,7 +298,7 @@ export default function TrainingProjectsPage() {
       setSelectedProject(projectDetail);
 
       // 获取项目评论
-      const commentsResponse = await fetch(`${API_BASE_URL}/projects/${projectId}/comments`, {
+      const commentsResponse = await fetch(`${API_BASE_URL}/project-discussions/project/${projectId}`, {
         headers: {
           "Authorization": `Bearer ${token}`
         }

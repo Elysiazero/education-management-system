@@ -254,7 +254,7 @@ export default function ProfilePage() {
             setAvatarUrl(objectUrl)  // 设置预览URL
 
             // 上传头像URL到服务器
-            const response = await fetch(`${API_BASE_URL}/me/avatar`, {
+            const response = await fetch(`${API_BASE_URL}/me/profile`, {
                 method: "PUT",
                 headers: {
                     "Content-Type": "application/json",
