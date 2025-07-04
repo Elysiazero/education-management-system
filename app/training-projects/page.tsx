@@ -44,6 +44,7 @@ import {
 
 // API基础URL配置
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080/api/v1/teaching";
+const USER_API_BASE_URL = process.env.NEXT_PUBLIC_USER_API_BASE_URL || "http://localhost:8080/api/v1";
 
 // 项目状态类型
 type ProjectStatus = "ACTIVE" | "COMPLETED" | "DRAFT";
@@ -67,6 +68,7 @@ interface UserInfoDTO {
 }
 
 interface ProjectDTO {
+  createdAt: string;
   id: number;
   title: string;
   description: string;
@@ -128,6 +130,7 @@ interface ClassDTO {
 }
 
 export default function TrainingProjectsPage() {
+  const [names, setNames] = useState<Record<number, string>>({}); // { [userId]: realName }
   const [user, setUser] = useState<UserInfoDTO | null>(null);
   const [projects, setProjects] = useState<ProjectDTO[]>([]);
   const [selectedProject, setSelectedProject] = useState<ProjectDetailDTO | null>(null);
@@ -153,7 +156,7 @@ export default function TrainingProjectsPage() {
   const [selectedClassId, setSelectedClassId] = useState<number | null>(null);
   const [teamMembers, setTeamMembers] = useState<number[]>([]);
   const [selectedTaskForAssignment, setSelectedTaskForAssignment] = useState<number | null>(null);
-  const [creatorNames, setCreatorNames] = useState({});
+  const [creatorNames, setCreatorNames] = useState<Record<number, string>>({});
   const router = useRouter();
 
   useEffect(() => {
@@ -197,7 +200,6 @@ export default function TrainingProjectsPage() {
 
         // =================== 新增部分：获取创建者信息 ===================
         // 创建映射表存储创建者名字
-        const names: { [key: number]: string } = {};
 
         // 提取所有唯一的创建者ID
         const creatorIds = projectsData.map((project: ProjectDTO) => project.creatorId);
@@ -208,23 +210,23 @@ export default function TrainingProjectsPage() {
             uniqueCreatorIds.map(async (creatorId) => {
               try {
                 console.log(`获取创建者信息: creatorId=${creatorId}`);
-                const creatorResponse = await fetch(`http://localhost:8080/api/v1/me/${creatorId}`, {
+                const creatorResponse = await fetch(`${USER_API_BASE_URL}/me/${creatorId}`, {
                   headers: {
                     "Authorization": `Bearer ${token}`
                   }
                 });
 
                 if (creatorResponse.ok) {
-                  const creatorData = await creatorResponse.json();
+                  const creatorData: UserInfoDTO = await creatorResponse.json();
                   console.log(`创建者 ${creatorId} 信息:`, creatorData);
-                  names[creatorId] = creatorData.realName;
+                  names[creatorId as number] = creatorData.realName;
                 } else {
                   console.error(`获取创建者 ${creatorId} 信息失败: ${creatorResponse.status}`);
-                  names[creatorId] = "未知用户";
+                  names[creatorId as number] = "未知用户";
                 }
               } catch (err) {
                 console.error(`获取创建者 ${creatorId} 信息失败:`, err);
-                names[creatorId] = "未知用户";
+                names[creatorId as number] = "未知用户";
               }
             })
         );
@@ -272,7 +274,7 @@ export default function TrainingProjectsPage() {
             } catch (err) {
               console.error(`获取班级 ${cls.id} 详情失败:`, err);
             }
-          });
+          }));
 
           setClassStudents(classStudentsMap);
           console.log("所有班级学生数据:", classStudentsMap);
@@ -299,7 +301,7 @@ export default function TrainingProjectsPage() {
   const fetchProjectDetails = async (projectId: number) => {
     try {
       setLoading(true);
-      const token = localStorage.getItem("token");
+      const token = localStorage.getItem("accessToken");
 
       console.log(`获取项目详情: projectId=${projectId}`);
       const projectResponse = await fetch(`${API_BASE_URL}/projects/${projectId}`, {
@@ -468,7 +470,7 @@ export default function TrainingProjectsPage() {
 
     try {
       setLoading(true);
-      const token = localStorage.getItem("token");
+      const token = localStorage.getItem("accessToken");
 
       // 获取表单值
       const title = (document.getElementById('taskTitle') as HTMLInputElement)?.value || "新任务";
@@ -699,17 +701,21 @@ export default function TrainingProjectsPage() {
 
     try {
       setLoading(true);
-      const token = localStorage.getItem("token");
+      const token = localStorage.getItem("accessToken");
 
       console.log("添加评论内容:", newCommentContent);
-      const response = await fetch(`${API_BASE_URL}/projects/${selectedProject.id}/comments`, {
+      const response = await fetch(`${API_BASE_URL}/project-discussions`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
         body: JSON.stringify({
-          content: newCommentContent
+          projectId: selectedProject.id,
+          userId: user.id,
+          content: newCommentContent,
+          createdAt: new Date().toISOString(),
+          createdBy: user.realName || user.username
         })
       });
 
@@ -736,7 +742,7 @@ export default function TrainingProjectsPage() {
 
     try {
       setLoading(true);
-      const token = localStorage.getItem("token");
+      const token = localStorage.getItem("accessToken");
 
       // 获取表单值
       const score = parseFloat((document.getElementById('teamScore') as HTMLInputElement)?.value || "0");
@@ -996,7 +1002,7 @@ export default function TrainingProjectsPage() {
                           </div>
                           <div>
                             <span className="font-medium">创建人:</span>
-                            <span className="ml-2">{selectedProject.creator.realName}</span>
+                            <span className="ml-2">{names[selectedProject.creatorId] || '未知'}</span>
                           </div>
                           <div>
                             <span className="font-medium">参与团队:</span>
@@ -1885,7 +1891,7 @@ export default function TrainingProjectsPage() {
                             <div className="flex items-center">
                               <Target className="w-4 h-4 mr-1" />
                               {/* 显示创建者名字 */}
-                              {creatorNames[project.creatorId] || "加载中..."}
+                              {creatorNames[project.creatorId as keyof typeof creatorNames] ?? "加载中..."}
                             </div>
                             <div className="flex items-center">
                               <Clock className="w-4 h-4 mr-1" />
