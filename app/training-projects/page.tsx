@@ -195,7 +195,7 @@ export default function TrainingProjectsPage() {
         const projectsData = await projectsResponse.json();
         console.log("获取的项目列表数据:", projectsData);
         setProjects(projectsData);
-
+        if (currentUser.role === 'teacher') {
         // 获取所有班级数据
         const classesResponse = await fetch(`${API_BASE_URL}/admin/classes`, {
           headers: {
@@ -211,39 +211,40 @@ export default function TrainingProjectsPage() {
         console.log("获取的班级列表数据:", classesData);
         setClasses(classesData);
 
-        // 获取每个班级的详细信息（包括学生）
-        const classStudentsMap: { [key: number]: UserInfoDTO[] } = {};
-        await Promise.all(classesData.map(async (cls: ClassDTO) => {
-          try {
-            const classDetailResponse = await fetch(`${API_BASE_URL}/classes/${cls.id}`, {
-              headers: {
-                "Authorization": `Bearer ${token}`
+
+          // 获取每个班级的详细信息（包括学生）
+          const classStudentsMap: { [key: number]: UserInfoDTO[] } = {};
+          await Promise.all(classesData.map(async (cls: ClassDTO) => {
+            try {
+              const classDetailResponse = await fetch(`${API_BASE_URL}/classes/${cls.id}`, {
+                headers: {
+                  "Authorization": `Bearer ${token}`
+                }
+              });
+
+              if (!classDetailResponse.ok) {
+                console.error(`获取班级 ${cls.id} 详情失败`);
+                return;
               }
-            });
 
-            if (!classDetailResponse.ok) {
-              console.error(`获取班级 ${cls.id} 详情失败`);
-              return;
+              const classDetail = await classDetailResponse.json();
+              console.log(`班级 ${cls.id} 详情:`, classDetail);
+
+              // 使用新的数据结构
+              classStudentsMap[cls.id] = classDetail.members || [];
+            } catch (err) {
+              console.error(`获取班级 ${cls.id} 详情失败:`, err);
             }
+          }));
 
-            const classDetail = await classDetailResponse.json();
-            console.log(`班级 ${cls.id} 详情:`, classDetail);
+          setClassStudents(classStudentsMap);
+          console.log("所有班级学生数据:", classStudentsMap);
 
-            // 使用新的数据结构
-            classStudentsMap[cls.id] = classDetail.members || [];
-          } catch (err) {
-            console.error(`获取班级 ${cls.id} 详情失败:`, err);
+          // 如果班级列表不为空，默认选择第一个班级
+          if (classesData.length > 0) {
+            setSelectedClassId(classesData[0].id);
           }
-        }));
-
-        setClassStudents(classStudentsMap);
-        console.log("所有班级学生数据:", classStudentsMap);
-
-        // 如果班级列表不为空，默认选择第一个班级
-        if (classesData.length > 0) {
-          setSelectedClassId(classesData[0].id);
         }
-
       } catch (err: any) {
         console.error("初始化数据失败:", err);
         setError(err.message || "初始化数据失败");
