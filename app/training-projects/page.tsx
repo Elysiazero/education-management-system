@@ -882,8 +882,9 @@ export default function TrainingProjectsPage() {
         );
 
         if (!response.ok) return null;
-
-        const teamId = await response.json();
+        console.log("回应是：",response.body);
+        const data = await response.json();
+        const teamId = data[0]?.teamId;
 
         // 获取团队详细信息
         if (teamId) {
