@@ -272,6 +272,13 @@ export default function ProfilePage() {
 
             const userData = await response.json()
             setUser(userData)
+            // 更新 localStorage 中的用户信息
+            const storedUser = localStorage.getItem("user");
+            if (storedUser) {
+                const parsedUser = JSON.parse(storedUser);
+                const updatedUser = { ...parsedUser, avatarUrl: userData.avatarUrl };
+                localStorage.setItem("user", JSON.stringify(updatedUser));
+            }
             toast.success("头像更新成功")
         } catch (error: any) {
             console.error("头像上传错误:", error)

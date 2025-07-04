@@ -439,17 +439,13 @@ export default function HomePage() {
                     onClick={() => router.push("/profile")}
                 >
                   <Avatar>
-                    <AvatarImage src={user.avatarUrl || "/placeholder.svg"} alt={user.realName} />
+                    <AvatarImage src={user?.avatarUrl || "/placeholder.svg"} alt={user.realName} />
                     <AvatarFallback>{user.realName.charAt(0)}</AvatarFallback>
                   </Avatar>
                   <div className="hidden md:block">
                     <p className="text-sm font-medium text-gray-900">{user.realName}</p>
                     <div className="flex items-center space-x-1">
                       {getRoleIcon()}
-                      <p className="text-xs text-gray-500">
-                        {getRoleLabel()}
-                        <span className="ml-2 text-red-500">(角色: {user.role})</span>
-                      </p>
                     </div>
                   </div>
                 </div>
