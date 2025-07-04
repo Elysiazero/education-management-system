@@ -1,6 +1,6 @@
 "use client"
 
-import {JSX, useEffect, useState} from "react"
+import { JSX, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -148,7 +148,7 @@ export default function HomePage() {
       type: "success",
     },
   ]
-// 角色转换函数
+  // 角色转换函数
   const convertRole = (role: string) => {
     if (role.startsWith("ROLE_")) {
       return role.substring(5).toLowerCase();
@@ -403,12 +403,12 @@ export default function HomePage() {
 
   if (loading) {
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mx-auto mb-4"></div>
-            <p className="text-gray-600">正在加载用户信息...</p>
-          </div>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <p className="text-gray-600">正在加载用户信息...</p>
         </div>
+      </div>
     )
   }
 
@@ -417,153 +417,153 @@ export default function HomePage() {
   }
 
   return (
-      <div className="min-h-screen bg-gray-50">
-        {/* Header */}
-        <header className="bg-white shadow-sm border-b">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="flex justify-between items-center h-16">
-              <div className="flex items-center">
-                <h1 className="text-2xl font-bold text-gray-900">教育管理系统</h1>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <header className="bg-white shadow-sm border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center">
+              <h1 className="text-2xl font-bold text-gray-900">教育管理系统</h1>
+            </div>
+
+            <div className="flex items-center space-x-4">
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <Input placeholder="搜索..." className="pl-10 w-64" />
               </div>
 
-              <div className="flex items-center space-x-4">
-                <div className="relative">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                  <Input placeholder="搜索..." className="pl-10 w-64" />
-                </div>
+              {/* <NotificationCenter userId={user.id} /> */}
 
-                <NotificationCenter userId={user.id} />
-
-                <div
-                    className="flex items-center space-x-3 cursor-pointer"
-                    onClick={() => router.push("/profile")}
-                >
-                  <Avatar>
-                    {user?.avatarUrl ? (
-                        <AvatarImage
-                            src={user.avatarUrl}
-                            alt={user.realName}
-                            className="object-cover"
-                        />
-                    ) : (
-                        <AvatarFallback className="bg-blue-100 text-blue-800">
-                          {user?.realName?.charAt(0) || "U"}
-                        </AvatarFallback>
-                    )}
-                  </Avatar>
-                  <div className="hidden md:block">
-                    <p className="text-sm font-medium text-gray-900">{user.realName}</p>
-                    <div className="flex items-center space-x-1">
-                      {getRoleIcon()}
-                    </div>
+              <div
+                className="flex items-center space-x-3 cursor-pointer"
+                onClick={() => router.push("/profile")}
+              >
+                <Avatar>
+                  {user?.avatarUrl ? (
+                    <AvatarImage
+                      src={user.avatarUrl}
+                      alt={user.realName}
+                      className="object-cover"
+                    />
+                  ) : (
+                    <AvatarFallback className="bg-blue-100 text-blue-800">
+                      {user?.realName?.charAt(0) || "U"}
+                    </AvatarFallback>
+                  )}
+                </Avatar>
+                <div className="hidden md:block">
+                  <p className="text-sm font-medium text-gray-900">{user.realName}</p>
+                  <div className="flex items-center space-x-1">
+                    {getRoleIcon()}
                   </div>
                 </div>
-
-                <Button variant="ghost" size="icon" onClick={handleLogout}>
-                  <LogOut className="w-5 h-5" />
-                </Button>
               </div>
+
+              <Button variant="ghost" size="icon" onClick={handleLogout}>
+                <LogOut className="w-5 h-5" />
+              </Button>
             </div>
           </div>
-        </header>
+        </div>
+      </header>
 
-        {/* Main Content */}
-        <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {/* Welcome Section */}
-          <div className="mb-8">
-            <h2 className="text-3xl font-bold text-gray-900 mb-2">欢迎回来，{user.realName}</h2>
-            <p className="text-gray-600">
-              {user.role === "admin" && "管理系统运行状态和用户权限"}
-              {user.role === "teacher" && "管理您的课程和学生实训项目"}
-              {user.role === "student" && "继续您的学习和实训项目"}
-            </p>
-          </div>
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Welcome Section */}
+        <div className="mb-8">
+          <h2 className="text-3xl font-bold text-gray-900 mb-2">欢迎回来，{user.realName}</h2>
+          <p className="text-gray-600">
+            {user.role === "admin" && "管理系统运行状态和用户权限"}
+            {user.role === "teacher" && "管理您的课程和学生实训项目"}
+            {user.role === "student" && "继续您的学习和实训项目"}
+          </p>
+        </div>
 
-          {/* Quick Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-            {getQuickStats().map((stat, index) => (
-                <Card key={index}>
-                  <CardContent className="p-6">
-                    <div className="flex items-center">
-                      {stat.icon}
-                      <div className="ml-4">
-                        <p className="text-sm font-medium text-gray-600">{stat.title}</p>
-                        <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
-                        <p className="text-xs text-gray-500">{stat.description}</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-            ))}
-          </div>
-
-          {/* Module Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {getModuleCards().map((module, index) => (
-                <Card
-                    key={index}
-                    className={`cursor-pointer transition-colors ${module.color}`}
-                    onClick={() => router.push(module.href)}
-                >
-                  <CardHeader>
-                    <div className="flex items-center space-x-4">
-                      {module.icon}
-                      <div>
-                        <CardTitle className="text-lg">{module.title}</CardTitle>
-                        <CardDescription>{module.description}</CardDescription>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <Button variant="ghost" className="w-full justify-start">
-                      进入模块 →
-                    </Button>
-                  </CardContent>
-                </Card>
-            ))}
-          </div>
-
-          {/* Recent Activity */}
-          <div className="mt-8">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Activity className="w-5 h-5 mr-2" />
-                  {user.role === "admin" ? "系统活动记录" : "最近活动"}
-                </CardTitle>
-                <CardDescription>
-                  {user.role === "admin" ? "系统中所有用户的最新操作记录" : "您最近的操作记录"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {recentActivities.map((activity) => (
-                      <div key={activity.id} className="flex items-center space-x-4">
-                        <div className={`w-2 h-2 rounded-full ${getActivityTypeColor(activity.type)}`}></div>
-                        <div className="flex-1">
-                          <p className="text-sm font-medium">
-                            {user.role === "admin" ? (
-                                <>
-                                  <span className="text-blue-600">{activity.userName}</span>
-                                  <span className="text-gray-500 text-xs ml-1">({activity.userRole})</span>
-                                  {" " + activity.action}：{activity.resource}
-                                </>
-                            ) : (
-                                `${activity.action}：${activity.resource}`
-                            )}
-                          </p>
-                          <p className="text-xs text-gray-500">{activity.timestamp}</p>
-                        </div>
-                      </div>
-                  ))}
+        {/* Quick Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          {getQuickStats().map((stat, index) => (
+            <Card key={index}>
+              <CardContent className="p-6">
+                <div className="flex items-center">
+                  {stat.icon}
+                  <div className="ml-4">
+                    <p className="text-sm font-medium text-gray-600">{stat.title}</p>
+                    <p className="text-2xl font-bold text-gray-900">{stat.value}</p>
+                    <p className="text-xs text-gray-500">{stat.description}</p>
+                  </div>
                 </div>
               </CardContent>
             </Card>
-          </div>
-        </main>
+          ))}
+        </div>
 
-        {/* 成绩预警管理器 */}
-        {/*{user && <GradeAlertManager userId={user.id} />}*/}
-      </div>
+        {/* Module Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {getModuleCards().map((module, index) => (
+            <Card
+              key={index}
+              className={`cursor-pointer transition-colors ${module.color}`}
+              onClick={() => router.push(module.href)}
+            >
+              <CardHeader>
+                <div className="flex items-center space-x-4">
+                  {module.icon}
+                  <div>
+                    <CardTitle className="text-lg">{module.title}</CardTitle>
+                    <CardDescription>{module.description}</CardDescription>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <Button variant="ghost" className="w-full justify-start">
+                  进入模块 →
+                </Button>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {/* Recent Activity */}
+        <div className="mt-8">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center">
+                <Activity className="w-5 h-5 mr-2" />
+                {user.role === "admin" ? "系统活动记录" : "最近活动"}
+              </CardTitle>
+              <CardDescription>
+                {user.role === "admin" ? "系统中所有用户的最新操作记录" : "您最近的操作记录"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {recentActivities.map((activity) => (
+                  <div key={activity.id} className="flex items-center space-x-4">
+                    <div className={`w-2 h-2 rounded-full ${getActivityTypeColor(activity.type)}`}></div>
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">
+                        {user.role === "admin" ? (
+                          <>
+                            <span className="text-blue-600">{activity.userName}</span>
+                            <span className="text-gray-500 text-xs ml-1">({activity.userRole})</span>
+                            {" " + activity.action}：{activity.resource}
+                          </>
+                        ) : (
+                          `${activity.action}：${activity.resource}`
+                        )}
+                      </p>
+                      <p className="text-xs text-gray-500">{activity.timestamp}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </main>
+
+      {/* 成绩预警管理器 */}
+      {/*{user && <GradeAlertManager userId={user.id} />}*/}
+    </div>
   )
 }

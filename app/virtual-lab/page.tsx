@@ -139,11 +139,16 @@ const fetchExperiments = async (): Promise<Experiment[]> => {
       'Authorization': `Bearer ${token}`
     }
   });
-  if (!response.ok) throw new Error('获取实验列表失败');
-  const data = await response.json();
-  return data.content;
-};
 
+  if (!response.ok) throw new Error('获取实验列表失败');
+
+  const responseData = await response.json();
+
+  // 最终修正：返回 data 对象中的 records 数组。
+  // 使用可选链 (?.) 确保即使 data 或 records 不存在时也不会报错。
+  // 使用 || [] 确保最终总能返回一个数组。
+  return responseData?.data?.records || [];
+};
 // 获取当前用户信息
 const fetchUser = async (): Promise<User> => {
   const token = getAuthToken();
@@ -1361,7 +1366,7 @@ function VirtualLabPage() {
                       )}
 
                       <div className="flex flex-wrap gap-1">
-                        {experiment.tags.slice(0, 3).map((tag, index) => (
+                        {(experiment.tags ?? []).slice(0, 3).map((tag, index) => (
                           <Badge key={index} variant="outline" className="text-xs">
                             {tag}
                           </Badge>
