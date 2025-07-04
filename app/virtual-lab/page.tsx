@@ -104,9 +104,21 @@ interface Report {
 // API基础URL
 const API_BASE_URL = "http://localhost:8080/api/v1/teaching";
 
+// 获取token的函数
+const getAuthToken = () => {
+  return localStorage.getItem("accessToken");
+};
+
 // 获取实验列表
 const fetchExperiments = async (): Promise<Experiment[]> => {
-  const response = await fetch(`${API_BASE_URL}/experiments?page=0&size=100`);
+  const token = getAuthToken();
+  if (!token) throw new Error('用户未登录');
+
+  const response = await fetch(`${API_BASE_URL}/experiments?page=0&size=100`, {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
   if (!response.ok) throw new Error('获取实验列表失败');
   const data = await response.json();
   return data.content;
@@ -114,16 +126,29 @@ const fetchExperiments = async (): Promise<Experiment[]> => {
 
 // 获取当前用户信息
 const fetchUser = async (): Promise<User> => {
-  const response = await fetch(`${API_BASE_URL}/auth/me`);
+  const token = getAuthToken();
+  if (!token) throw new Error('用户未登录');
+
+  const response = await fetch(`http://localhost:8080/api/v1/auth/me`, {
+    headers: {
+      'Authorization': `Bearer ${token}`
+    }
+  });
   if (!response.ok) throw new Error('获取用户信息失败');
   return response.json();
 };
 
 // 创建新实验
 const createExperiment = async (newExperiment: any): Promise<Experiment> => {
+  const token = getAuthToken();
+  if (!token) throw new Error('用户未登录');
+
   const response = await fetch(`${API_BASE_URL}/experiments`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
     body: JSON.stringify(newExperiment)
   });
   if (!response.ok) throw new Error('创建实验失败');
@@ -132,9 +157,15 @@ const createExperiment = async (newExperiment: any): Promise<Experiment> => {
 
 // 发布实验任务
 const publishAssignment = async (assignmentData: any): Promise<Assignment> => {
+  const token = getAuthToken();
+  if (!token) throw new Error('用户未登录');
+
   const response = await fetch(`${API_BASE_URL}/experiment-tasks/assign`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
     body: JSON.stringify(assignmentData)
   });
   if (!response.ok) throw new Error('发布任务失败');
@@ -143,9 +174,15 @@ const publishAssignment = async (assignmentData: any): Promise<Assignment> => {
 
 // 提交实验报告
 const submitReport = async (taskId: string, reportData: any): Promise<Report> => {
+  const token = getAuthToken();
+  if (!token) throw new Error('用户未登录');
+
   const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/my-report`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
     body: JSON.stringify({
       manualContent: reportData.content,
       isSubmitted: true
@@ -157,9 +194,15 @@ const submitReport = async (taskId: string, reportData: any): Promise<Report> =>
 
 // 评分实验报告
 const gradeReport = async (reportId: string, gradeData: any): Promise<Report> => {
+  const token = getAuthToken();
+  if (!token) throw new Error('用户未登录');
+
   const response = await fetch(`${API_BASE_URL}/reports/${reportId}/grade`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    },
     body: JSON.stringify({
       manualScore: gradeData.grade,
       feedback: gradeData.feedback
