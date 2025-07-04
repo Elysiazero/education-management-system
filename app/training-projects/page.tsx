@@ -332,7 +332,7 @@ export default function TrainingProjectsPage() {
 
       console.log(`获取项目详情: projectId=${projectId}`);
 
-      // 1. 获取项目基础信息（原有代码）
+      // 1. 获取项目基础信息
       const projectResponse = await fetch(`${API_BASE_URL}/projects/${projectId}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -344,7 +344,7 @@ export default function TrainingProjectsPage() {
       const projectDetail = await projectResponse.json();
       console.log("项目基础信息:", projectDetail);
 
-      // 2. 获取项目任务（原有代码）
+      // 2. 获取项目任务
       const tasksResponse = await fetch(
           `${API_BASE_URL}/tasks/project/${projectId}`,
           { headers: { Authorization: `Bearer ${token}` } }
@@ -354,10 +354,10 @@ export default function TrainingProjectsPage() {
       if (tasksResponse.ok) {
         tasks = await tasksResponse.json();
         console.log("项目任务:", tasks);
-        setProjectTasks(tasks); // 原有状态设置
+        setProjectTasks(tasks);
       }
 
-      // 3. 获取项目评论（原有代码）
+      // 3. 获取项目评论
       const commentsResponse = await fetch(
           `${API_BASE_URL}/project-discussions/project/${projectId}`,
           { headers: { Authorization: `Bearer ${token}` } }
@@ -367,97 +367,97 @@ export default function TrainingProjectsPage() {
       if (commentsResponse.ok) {
         commentsData = await commentsResponse.json();
         console.log("项目评论:", commentsData);
-        setComments(commentsData); // 原有状态设置
+        setComments(commentsData);
       }
 
-      // =================== 新增部分开始 ===================
-      // 4. 获取团队成员信息（新增代码）
-      let teamsWithMembers: ProjectTeamDTO[] = [];
-      if (projectDetail.teams && projectDetail.teams.length > 0) {
-        teamsWithMembers = await Promise.all(
-            projectDetail.teams.map(async (team: any) => {
-              try {
-                console.log(`获取团队成员: teamId=${team.id}`);
-                const membersResponse = await fetch(
-                    `${API_BASE_URL}/team-members/team/${team.id}`,
-                    { headers: { Authorization: `Bearer ${token}` } }
-                );
+      // =================== 关键修复部分开始 ===================
+      // 4. 获取团队信息（使用独立API调用）
+      console.log("获取项目团队列表...");
+      const teamsResponse = await fetch(
+          `${API_BASE_URL}/teams/project/${projectId}`,
+          { headers: { Authorization: `Bearer ${token}` } }
+      );
 
-                let members = [];
-                if (membersResponse.ok) {
-                  members = await membersResponse.json();
-                  console.log(`团队 ${team.id} 成员:`, members);
-                } else {
-                  console.warn(`获取团队 ${team.id} 成员失败: ${membersResponse.status}`);
-                }
-
-                // 返回完整的团队对象，提供所有字段的默认值（新增）
-                return {
-                  // 核心字段
-                  id: team.id || 0,
-                  name: team.name || "未命名团队",
-                  projectId: team.projectId || 0,
-                  leaderId: team.leaderId || 0,
-
-                  // 新增字段（提供默认值）
-                  description: team.description || "无描述",
-                  createdAt: team.createdAt || new Date().toISOString(),
-                  updatedAt: team.updatedAt || new Date().toISOString(),
-
-                  // 状态字段
-                  progress: team.progress || 0,
-                  score: team.score !== undefined ? team.score : null,
-                  feedback: team.feedback !== undefined ? team.feedback : null,
-
-                  // 成员数据（从API获取）
-                  members: members || [],
-
-                  // 保留原始数据（防止覆盖）
-                  ...team
-                } as ProjectTeamDTO;
-              } catch (err) {
-                console.error(`获取团队 ${team.id} 成员失败:`, err);
-                // 错误时返回带默认值的完整对象（新增）
-                return {
-                  id: team.id || 0,
-                  name: team.name || "未命名团队",
-                  description: team.description || "无描述",
-                  projectId: team.projectId || 0,
-                  leaderId: team.leaderId || 0,
-                  createdAt: team.createdAt || new Date().toISOString(),
-                  updatedAt: team.updatedAt || new Date().toISOString(),
-                  progress: team.progress || 0,
-                  score: team.score !== undefined ? team.score : null,
-                  feedback: team.feedback !== undefined ? team.feedback : null,
-                  members: [],
-                  ...team
-                } as ProjectTeamDTO;
-              }
-            })
-        );
-        console.log("带成员的团队列表:", teamsWithMembers);
+      let teams: ProjectTeamDTO[] = [];
+      if (teamsResponse.ok) {
+        teams = await teamsResponse.json();
+        console.log("项目团队列表:", teams);
       } else {
-        teamsWithMembers = [];
+        console.warn("获取团队列表失败:", teamsResponse.status);
       }
-      // =================== 新增部分结束 ===================
 
-      // 5. 获取用户团队信息（原有代码，学生和教师都需要）
-      await fetchUserTeam(projectId);
+      // 5. 为每个团队获取成员信息
+      console.log("获取团队成员信息...");
+      const teamsWithMembers = await Promise.all(
+          teams.map(async (team: any) => {
+            try {
+              console.log(`获取团队 ${team.id} 的成员...`);
+              const membersResponse = await fetch(
+                  `${API_BASE_URL}/team-members/team/${team.id}`,
+                  { headers: { Authorization: `Bearer ${token}` } }
+              );
 
-      // =================== 修改部分开始 ===================
-      // 6. 创建完整的项目对象（包含所有数据）（修改）
+              let members: UserInfoDTO[] = [];
+              if (membersResponse.ok) {
+                members = await membersResponse.json();
+                console.log(`团队 ${team.id} 成员:`, members);
+              } else {
+                console.warn(`获取团队 ${team.id} 成员失败: ${membersResponse.status}`);
+              }
+
+              // 返回完整的团队对象，确保包含所有必要字段
+              return {
+                // 核心字段
+                id: team.id || 0,
+                name: team.name || "未命名团队",
+                description: team.description || "无描述",
+                projectId: team.projectId || projectId,
+                leaderId: team.leaderId || 0,
+
+                // 状态字段
+                progress: team.progress || 0,
+                score: team.score !== undefined ? team.score : null,
+                feedback: team.feedback !== undefined ? team.feedback : null,
+
+                // 时间字段
+                createdAt: team.createdAt || new Date().toISOString(),
+                updatedAt: team.updatedAt || new Date().toISOString(),
+
+                // 成员数据
+                members: members || [],
+
+                // 保留原始数据
+                ...team
+              } as ProjectTeamDTO;
+            } catch (err) {
+              console.error(`获取团队 ${team.id} 成员失败:`, err);
+              return {
+                ...team,
+                id: team.id || 0,
+                name: team.name || "未命名团队",
+                members: []
+              } as ProjectTeamDTO;
+            }
+          })
+      );
+      console.log("带成员的团队列表:", teamsWithMembers);
+      // =================== 关键修复部分结束 ===================
+
+      // 6. 获取用户团队信息
+      const userTeamData = await fetchUserTeam(projectId);
+      setUserTeam(userTeamData);
+
+      // 7. 创建完整的项目对象
       const completeProject: ProjectDetailDTO = {
         ...projectDetail,
         tasks,
         teams: teamsWithMembers, // 使用带成员的团队列表
         comments: commentsData,
-        assignedStudents: projectDetail.assignedStudents || [] // 确保有默认值
+        assignedStudents: projectDetail.assignedStudents || []
       };
 
       console.log("完整项目详情:", completeProject);
-      setSelectedProject(completeProject); // 设置完整的项目对象
-      // =================== 修改部分结束 ===================
-
+      setSelectedProject(completeProject);
     } catch (err: any) {
       console.error("获取项目详情失败:", err);
       setError(err.message || "获取项目详情失败");
@@ -1443,118 +1443,112 @@ export default function TrainingProjectsPage() {
                     </div>
                   </div>
 
+                  // 团队卡片
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {(selectedProject.teams || []).map(team => {
-                      const isMyTeam = user && team.members.some(m => m.id === user.id);
+                    {(selectedProject?.teams || []).map(team => {
+                      // 确保team对象存在
+                      if (!team) return null;
+
+                      // 确保members数组存在
+                      const safeMembers = team.members || [];
+
+                      // 确保leaderId存在
+                      const leaderId = team.leaderId || 0;
+
+                      const isMyTeam = user && safeMembers.some(m => m?.id === user?.id);
 
                       return (
                           <Card key={team.id} className={isMyTeam ? "ring-2 ring-blue-500 bg-blue-50/30" : ""}>
+                            {/* 卡片头部 */}
                             <CardHeader>
                               <CardTitle className="flex items-center justify-between">
                                 <div className="flex items-center">
-                                  {team.name}
+                                  {team.name || "未命名团队"}
                                   {isMyTeam && (
-                                      <Badge className="ml-2" variant="default">
-                                        我的团队
-                                      </Badge>
+                                      <Badge className="ml-2">我的团队</Badge>
                                   )}
                                 </div>
                                 <Badge variant="outline">
                                   <Users className="w-3 h-3 mr-1" />
-                                  {team.members.length}人
+                                  {safeMembers.length}人
                                 </Badge>
                               </CardTitle>
                               <CardDescription>
-                                {team.description}
-                                <span className="ml-2">ID: {team.id}</span>
+                                {team.description || "无描述"}
                               </CardDescription>
                             </CardHeader>
 
+                            {/* 卡片内容 */}
                             <CardContent>
                               <div className="space-y-4">
+                                {/* 进度条 */}
                                 <div>
                                   <div className="flex justify-between text-sm mb-2">
                                     <span>团队进度</span>
-                                    <span>{team.progress}%</span>
+                                    <span>{team.progress || 0}%</span>
                                   </div>
-                                  <Progress value={team.progress} />
+                                  <Progress value={team.progress || 0} />
                                 </div>
 
+                                {/* 团队成员 - 使用safeMembers */}
                                 <div>
                                   <p className="text-sm font-medium mb-2">团队成员</p>
                                   <div className="space-y-1">
-                                    {team.members.map(member => (
-                                        <div key={member.id} className="flex items-center space-x-2 text-sm">
-                                          <Avatar className="w-6 h-6">
-                                            <AvatarFallback className="text-xs">
-                                              {member.realName?.charAt(0).toUpperCase() || "U"}
-                                            </AvatarFallback>
-                                          </Avatar>
-                                          <span className={member.id === user?.id ? "font-medium text-blue-600" : "text-gray-700"}>
-                      {member.id === user?.id ? `我 (${member.realName || member.username})` : member.realName || member.username}
-                    </span>
-                                          {team.leaderId === member.id && (
-                                              <Badge variant="outline" className="text-xs">
-                                                组长
-                                              </Badge>
-                                          )}
-                                        </div>
-                                    ))}
+                                    {safeMembers.map(member => {
+                                      // 确保member对象存在
+                                      if (!member) return null;
 
-                                    {team.members.length === 0 && (
+                                      return (
+                                          <div key={member.id} className="flex items-center space-x-2 text-sm">
+                                            <Avatar className="w-6 h-6">
+                                              <AvatarFallback>
+                                                {member.realName?.charAt(0) || "U"}
+                                              </AvatarFallback>
+                                            </Avatar>
+                                            <span className={member.id === user?.id ? "font-medium text-blue-600" : ""}>
+                        {member.id === user?.id
+                            ? `我 (${member.realName || member.username})`
+                            : member.realName || member.username}
+                      </span>
+                                            {leaderId === member.id && (
+                                                <Badge variant="outline" className="text-xs">组长</Badge>
+                                            )}
+                                          </div>
+                                      );
+                                    })}
+
+                                    {/* 处理空成员情况 */}
+                                    {safeMembers.length === 0 && (
                                         <p className="text-xs text-gray-500">暂无成员信息</p>
                                     )}
                                   </div>
                                 </div>
 
+                                {/* 团队元数据 */}
                                 <div className="grid grid-cols-2 gap-3 text-sm border-t pt-3">
-                                  <div className="flex flex-col">
-                                    <span className="text-gray-500">组长ID</span>
-                                    <span>{team.leaderId}</span>
-                                  </div>
-
-                                  <div className="flex flex-col">
-                                    <span className="text-gray-500">项目ID</span>
-                                    <span>{team.projectId}</span>
-                                  </div>
-
-                                  <div className="flex flex-col">
-                                    <span className="text-gray-500">创建时间</span>
-                                    <span>{new Date(team.createdAt).toLocaleDateString()}</span>
-                                  </div>
-
-                                  <div className="flex flex-col">
-                                    <span className="text-gray-500">更新时间</span>
-                                    <span>{new Date(team.updatedAt).toLocaleDateString()}</span>
-                                  </div>
+                                  <div><span className="text-gray-500">组长ID</span> {leaderId}</div>
+                                  <div><span className="text-gray-500">项目ID</span> {team.projectId ||'0'}</div>
+                                  <div><span className="text-gray-500">创建时间</span> {new Date(team.createdAt).toLocaleDateString()}</div>
+                                  <div><span className="text-gray-500">更新时间</span> {new Date(team.updatedAt).toLocaleDateString()}</div>
                                 </div>
                               </div>
                             </CardContent>
 
+                            {/* 操作按钮 */}
                             <CardContent className="pt-0 flex flex-wrap gap-2">
-                              {(user.role === "admin" || user.role === "teacher") && (
+                              {(user?.role === "admin" || user?.role === "teacher") && (
                                   <>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => {
-                                          setCurrentTeamForGrade(team);
-                                          setShowGradeTeam(true);
-                                        }}
-                                    >
-                                      <Star className="w-4 h-4 mr-1" />
-                                      评分
+                                    <Button variant="outline" size="sm" onClick={() => {
+                                      setCurrentTeamForGrade(team);
+                                      setShowGradeTeam(true);
+                                    }}>
+                                      <Star className="w-4 h-4 mr-1" />评分
                                     </Button>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        onClick={() => {
-                                          setCurrentTeamForTaskAssignment(team);
-                                          setShowAssignTask(true);
-                                        }}
-                                    >
-                                      <Send className="w-4 h-4 mr-1" />
-                                      指派任务
+                                    <Button variant="outline" size="sm" onClick={() => {
+                                      setCurrentTeamForTaskAssignment(team);
+                                      setShowAssignTask(true);
+                                    }}>
+                                      <Send className="w-4 h-4 mr-1" />指派任务
                                     </Button>
                                   </>
                               )}
@@ -1562,6 +1556,17 @@ export default function TrainingProjectsPage() {
                           </Card>
                       );
                     })}
+
+                    {/* 处理空团队情况 */}
+                    {(selectedProject?.teams || []).length === 0 && (
+                        <div className="col-span-full text-center py-8 text-gray-500">
+                          <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                          <p>暂无团队数据</p>
+                          <p className="text-sm mt-2">
+                            项目ID: {selectedProject?.id}，团队数量: {(selectedProject?.teams || []).length}
+                          </p>
+                        </div>
+                    )}
                   </div>
                 </div>
               </TabsContent>
