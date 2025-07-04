@@ -439,8 +439,17 @@ export default function HomePage() {
                     onClick={() => router.push("/profile")}
                 >
                   <Avatar>
-                    <AvatarImage src={user?.avatarUrl || "/placeholder.svg"} alt={user.realName} />
-                    <AvatarFallback>{user.realName.charAt(0)}</AvatarFallback>
+                    {user?.avatarUrl ? (
+                        <AvatarImage
+                            src={user.avatarUrl}
+                            alt={user.realName}
+                            className="object-cover"
+                        />
+                    ) : (
+                        <AvatarFallback className="bg-blue-100 text-blue-800">
+                          {user?.realName?.charAt(0) || "U"}
+                        </AvatarFallback>
+                    )}
                   </Avatar>
                   <div className="hidden md:block">
                     <p className="text-sm font-medium text-gray-900">{user.realName}</p>

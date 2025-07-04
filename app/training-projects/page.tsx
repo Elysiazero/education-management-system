@@ -73,7 +73,7 @@ interface ProjectDTO {
   status: ProjectStatus;
   startDate: string;
   endDate: string;
-  creator: UserInfoDTO;
+  creatorId: number;
   progress: number;
 }
 
@@ -153,10 +153,9 @@ export default function TrainingProjectsPage() {
   const [selectedClassId, setSelectedClassId] = useState<number | null>(null);
   const [teamMembers, setTeamMembers] = useState<number[]>([]);
   const [selectedTaskForAssignment, setSelectedTaskForAssignment] = useState<number | null>(null);
-
+  const [creatorNames, setCreatorNames] = useState({});
   const router = useRouter();
 
-  // 初始化数据
   useEffect(() => {
     const fetchUserAndData = async () => {
       try {
@@ -195,22 +194,60 @@ export default function TrainingProjectsPage() {
         const projectsData = await projectsResponse.json();
         console.log("获取的项目列表数据:", projectsData);
         setProjects(projectsData);
+
+        // =================== 新增部分：获取创建者信息 ===================
+        // 创建映射表存储创建者名字
+        const names: { [key: number]: string } = {};
+
+        // 提取所有唯一的创建者ID
+        const creatorIds = projectsData.map((project: ProjectDTO) => project.creatorId);
+        const uniqueCreatorIds = Array.from(new Set(creatorIds));
+
+        // 并行获取每个创建者的信息
+        await Promise.all(
+            uniqueCreatorIds.map(async (creatorId) => {
+              try {
+                console.log(`获取创建者信息: creatorId=${creatorId}`);
+                const creatorResponse = await fetch(`http://localhost:8080/api/v1/me/${creatorId}`, {
+                  headers: {
+                    "Authorization": `Bearer ${token}`
+                  }
+                });
+
+                if (creatorResponse.ok) {
+                  const creatorData = await creatorResponse.json();
+                  console.log(`创建者 ${creatorId} 信息:`, creatorData);
+                  names[creatorId] = creatorData.realName;
+                } else {
+                  console.error(`获取创建者 ${creatorId} 信息失败: ${creatorResponse.status}`);
+                  names[creatorId] = "未知用户";
+                }
+              } catch (err) {
+                console.error(`获取创建者 ${creatorId} 信息失败:`, err);
+                names[creatorId] = "未知用户";
+              }
+            })
+        );
+
+        setCreatorNames(names);
+        console.log("创建者名称映射:", names);
+        // =================== 新增部分结束 ===================
+
         if (currentUser.role === 'teacher') {
-        // 获取所有班级数据
-        const classesResponse = await fetch(`${API_BASE_URL}/admin/classes`, {
-          headers: {
-            "Authorization": `Bearer ${token}`
+          // 获取所有班级数据
+          const classesResponse = await fetch(`${API_BASE_URL}/admin/classes`, {
+            headers: {
+              "Authorization": `Bearer ${token}`
+            }
+          });
+
+          if (!classesResponse.ok) {
+            throw new Error("获取班级列表失败");
           }
-        });
 
-        if (!classesResponse.ok) {
-          throw new Error("获取班级列表失败");
-        }
-
-        const classesData = await classesResponse.json();
-        console.log("获取的班级列表数据:", classesData);
-        setClasses(classesData);
-
+          const classesData = await classesResponse.json();
+          console.log("获取的班级列表数据:", classesData);
+          setClasses(classesData);
 
           // 获取每个班级的详细信息（包括学生）
           const classStudentsMap: { [key: number]: UserInfoDTO[] } = {};
@@ -235,7 +272,7 @@ export default function TrainingProjectsPage() {
             } catch (err) {
               console.error(`获取班级 ${cls.id} 详情失败:`, err);
             }
-          }));
+          });
 
           setClassStudents(classStudentsMap);
           console.log("所有班级学生数据:", classStudentsMap);
@@ -252,7 +289,6 @@ export default function TrainingProjectsPage() {
         setLoading(false);
       }
     };
-
 
     fetchUserAndData();
   }, [router]);
@@ -1848,7 +1884,12 @@ export default function TrainingProjectsPage() {
                             </div>
                             <div className="flex items-center">
                               <Target className="w-4 h-4 mr-1" />
-                              {project.creator.realName}
+                              {/* 显示创建者名字 */}
+                              {creatorNames[project.creatorId] || "加载中..."}
+                            </div>
+                            <div className="flex items-center">
+                              <Clock className="w-4 h-4 mr-1" />
+                              {new Date(project.createdAt).toLocaleDateString()}
                             </div>
                           </div>
                         </div>
