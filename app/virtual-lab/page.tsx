@@ -101,184 +101,72 @@ interface Report {
   status: "未提交" | "已提交" | "已批改"
 }
 
-// 模拟后端 API 调用
+// API基础URL
+const API_BASE_URL = "http://localhost:8080/api/v1/teaching";
+
+// 获取实验列表
 const fetchExperiments = async (): Promise<Experiment[]> => {
-  // 实际项目中这里应该是 fetch('/api/experiments')
-  return new Promise(resolve => {
-    setTimeout(() => {
-      resolve([
-        {
-          id: "1",
-          title: "化学反应动力学",
-          description: "研究化学反应速率与温度、浓度的关系",
-          category: "化学",
-          difficulty: 3,
-          duration: 45,
-          rating: 4.5,
-          completed: true,
-          progress: 100,
-          thumbnail: "/placeholder.svg?height=200&width=300",
-          tags: ["反应动力学", "温度效应", "浓度影响"],
-          creator: "系统",
-          isSystem: true,
-        },
-        {
-          id: "2",
-          title: "光的折射与反射",
-          description: "探索光在不同介质中的传播规律",
-          category: "物理",
-          difficulty: 2,
-          duration: 30,
-          rating: 4.2,
-          completed: false,
-          progress: 60,
-          thumbnail: "/placeholder.svg?height=200&width=300",
-          tags: ["光学", "折射", "反射"],
-          creator: "系统",
-          isSystem: true,
-        },
-        {
-          id: "4",
-          title: "电路分析实验",
-          description: "分析串联和并联电路的电流电压关系",
-          category: "物理",
-          difficulty: 3,
-          duration: 40,
-          rating: 4.3,
-          completed: false,
-          progress: 25,
-          thumbnail: "/placeholder.svg?height=200&width=300",
-          tags: ["电路", "欧姆定律", "电流"],
-          creator: "张教授",
-          assignments: [
-            {
-              id: "a1",
-              taskName: "期中实验作业",
-              className: "高三(1)班",
-              classId: "class1",
-              startTime: "2023-10-01T08:00:00",
-              endTime: "2023-10-15T23:59:59",
-              requirements: "完成实验并提交实验报告，报告应包括实验目的、步骤、数据记录和结论。",
-              status: "已批改",
-              assignedTo: ["stu1", "stu2", "stu3"],
-              submittedAt: "2023-10-14T15:30:00",
-              grade: 92,
-              reports: [
-                {
-                  id: "r1",
-                  studentId: "stu1",
-                  studentName: "张三",
-                  submittedAt: "2023-10-14T15:30:00",
-                  content: "实验目的：研究串联和并联电路的电流电压关系...",
-                  grade: 92,
-                  feedback: "报告完整，数据分析准确",
-                  status: "已批改"
-                },
-                {
-                  id: "r2",
-                  studentId: "stu2",
-                  studentName: "李四",
-                  submittedAt: "2023-10-14T16:45:00",
-                  content: "实验目的：分析电路中的电流分布...",
-                  grade: 85,
-                  feedback: "结论部分需要更详细的分析",
-                  status: "已批改"
-                },
-              ]
-            }
-          ]
-        },
-        {
-          id: "5",
-          title: "酸碱滴定实验",
-          description: "通过滴定法测定未知溶液的浓度",
-          category: "化学",
-          difficulty: 1,
-          duration: 35,
-          rating: 4.1,
-          completed: true,
-          progress: 100,
-          thumbnail: "/placeholder.svg?height=200&width=300",
-          tags: ["滴定", "酸碱", "浓度测定"],
-          creator: "李教授",
-        },
-      ]);
-    }, 800);
-  });
+  const response = await fetch(`${API_BASE_URL}/experiments?page=0&size=100`);
+  if (!response.ok) throw new Error('获取实验列表失败');
+  const data = await response.json();
+  return data.content;
 };
 
+// 获取当前用户信息
 const fetchUser = async (): Promise<User> => {
-  // 实际项目中这里应该是 fetch('/api/user')
-  return new Promise(resolve => {
-    setTimeout(() => {
-      resolve({
-        id: "stu1",
-        name: "张三",
-        email: "zhangsan@example.com",
-        role: "student",
-        classId: "class1"
-      });
-    }, 500);
-  });
+  const response = await fetch(`${API_BASE_URL}/auth/me`);
+  if (!response.ok) throw new Error('获取用户信息失败');
+  return response.json();
 };
 
+// 创建新实验
 const createExperiment = async (newExperiment: any): Promise<Experiment> => {
-  // 实际项目中这里应该是 POST 请求
-  return new Promise(resolve => {
-    setTimeout(() => {
-      resolve({
-        id: (Math.random() * 1000).toString(),
-        ...newExperiment,
-        rating: 4.0,
-        completed: false,
-        progress: 0,
-        thumbnail: "/placeholder.svg?height=200&width=300",
-        tags: newExperiment.tags.split(",").map((tag: string) => tag.trim()),
-        creator: "当前用户"
-      });
-    }, 1000);
+  const response = await fetch(`${API_BASE_URL}/experiments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(newExperiment)
   });
+  if (!response.ok) throw new Error('创建实验失败');
+  return response.json();
 };
 
+// 发布实验任务
 const publishAssignment = async (assignmentData: any): Promise<Assignment> => {
-  // 实际项目中这里应该是 POST 请求
-  return new Promise(resolve => {
-    setTimeout(() => {
-      resolve({
-        id: `a${Date.now()}`,
-        ...assignmentData,
-        status: "未开始",
-      });
-    }, 1000);
+  const response = await fetch(`${API_BASE_URL}/experiment-tasks/assign`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(assignmentData)
   });
+  if (!response.ok) throw new Error('发布任务失败');
+  return response.json();
 };
 
-const submitReport = async (reportData: any): Promise<Report> => {
-  // 实际项目中这里应该是 PUT 请求
-  return new Promise(resolve => {
-    setTimeout(() => {
-      resolve({
-        id: `r${Date.now()}`,
-        ...reportData,
-        submittedAt: new Date().toISOString(),
-        status: "已提交"
-      });
-    }, 800);
+// 提交实验报告
+const submitReport = async (taskId: string, reportData: any): Promise<Report> => {
+  const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/my-report`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      manualContent: reportData.content,
+      isSubmitted: true
+    })
   });
+  if (!response.ok) throw new Error('提交报告失败');
+  return response.json();
 };
 
-const gradeReport = async (gradeData: any): Promise<Report> => {
-  // 实际项目中这里应该是 POST 请求
-  return new Promise(resolve => {
-    setTimeout(() => {
-      resolve({
-        ...gradeData.report,
-        grade: gradeData.grade,
-        feedback: gradeData.feedback,
-        status: "已批改"
-      });
-    }, 800);
+// 评分实验报告
+const gradeReport = async (reportId: string, gradeData: any): Promise<Report> => {
+  const response = await fetch(`${API_BASE_URL}/reports/${reportId}/grade`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      manualScore: gradeData.grade,
+      feedback: gradeData.feedback
+    })
   });
+  if (!response.ok) throw new Error('评分失败');
+  return response.json();
 };
 
 function VirtualLabPage() {
@@ -387,7 +275,8 @@ function VirtualLabPage() {
   });
 
   const submitReportMutation = useMutation({
-    mutationFn: submitReport,
+    mutationFn: ({ taskId, reportData }: { taskId: string, reportData: any }) =>
+        submitReport(taskId, reportData),
     onSuccess: (newReport) => {
       queryClient.setQueryData(['experiments'], (old: Experiment[] | undefined) => {
         if (!old) return [];
@@ -420,7 +309,8 @@ function VirtualLabPage() {
   });
 
   const gradeReportMutation = useMutation({
-    mutationFn: gradeReport,
+    mutationFn: ({ reportId, gradeData }: { reportId: string, gradeData: any }) =>
+        gradeReport(reportId, gradeData),
     onSuccess: (gradedReport) => {
       queryClient.setQueryData(['experiments'], (old: Experiment[] | undefined) => {
         if (!old) return [];
@@ -539,13 +429,12 @@ function VirtualLabPage() {
     if (!currentExperiment) return;
 
     publishAssignmentMutation.mutate({
-      ...newAssignment,
+      experimentId: currentExperiment.id,
       taskName: newAssignment.taskName || currentExperiment.title,
-      className: classes.find(c => c.id === newAssignment.classId)?.name || "",
       classId: newAssignment.classId,
-      assignedTo: newAssignment.studentId ?
-          [newAssignment.studentId] :
-          classes.find(c => c.id === newAssignment.classId)?.students || []
+      requirements: newAssignment.requirements,
+      startTime: newAssignment.startTime,
+      endTime: newAssignment.endTime
     });
   }
 
@@ -553,10 +442,8 @@ function VirtualLabPage() {
     if (!selectedExperiment || !currentTask || !user) return;
 
     submitReportMutation.mutate({
-      studentId: user.id,
-      studentName: user.name,
-      content: reportContent,
-      taskId: currentTask.id
+      taskId: currentTask.id,
+      reportData: { content: reportContent }
     });
   }
 
@@ -564,9 +451,11 @@ function VirtualLabPage() {
     if (!currentReport || !currentTask) return;
 
     gradeReportMutation.mutate({
-      report: currentReport,
-      grade: gradeValue,
-      feedback: feedback
+      reportId: currentReport.id,
+      gradeData: {
+        grade: gradeValue,
+        feedback: feedback
+      }
     });
   }
 
@@ -578,6 +467,7 @@ function VirtualLabPage() {
   const handleGoToRecords = () => {
     router.push("/experiment-records");
   }
+
 
   if (userError || experimentsError) {
     return (
