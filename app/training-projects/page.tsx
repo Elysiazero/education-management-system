@@ -182,9 +182,6 @@ export default function TrainingProjectsPage() {
           projectsUrl = `${API_BASE_URL}/projects/student/${currentUser.id}`;
         }
 
-        console.log("获取项目列表URL:", projectsUrl);
-        console.log(token);
-        console.log(localStorage.getItem("accessToken"))
         const projectsResponse = await fetch(projectsUrl, {
           headers: {
             "Authorization": `Bearer ${token}`
@@ -199,35 +196,52 @@ export default function TrainingProjectsPage() {
         console.log("获取的项目列表数据:", projectsData);
         setProjects(projectsData);
 
-        // 获取班级数据
+        // 获取所有班级数据
         const classesResponse = await fetch(`${API_BASE_URL}/admin/classes`, {
           headers: {
             "Authorization": `Bearer ${token}`
           }
         });
 
-        if (classesResponse.ok) {
-          const classesData = await classesResponse.json();
-          console.log("获取的班级列表数据:", classesData);
-          setClasses(classesData);
-
-          // 如果班级列表不为空，默认选择第一个班级
-          if (classesData.length > 0) {
-            setSelectedClassId(classesData[0].id);
-          }
+        if (!classesResponse.ok) {
+          throw new Error("获取班级列表失败");
         }
 
-        // 获取班级成员数据
-        const membersResponse = await fetch(`${API_BASE_URL}/students`, {
-          headers: {
-            "Authorization": `Bearer ${token}`
-          }
-        });
+        const classesData = await classesResponse.json();
+        console.log("获取的班级列表数据:", classesData);
+        setClasses(classesData);
 
-        if (membersResponse.ok) {
-          const membersData = await membersResponse.json();
-          console.log("获取的班级成员数据:", membersData);
-          setClassMembers(membersData);
+        // 获取每个班级的详细信息（包括学生）
+        const classStudentsMap: { [key: number]: UserInfoDTO[] } = {};
+        await Promise.all(classesData.map(async (cls: ClassDTO) => {
+          try {
+            const classDetailResponse = await fetch(`${API_BASE_URL}/classes/${cls.id}`, {
+              headers: {
+                "Authorization": `Bearer ${token}`
+              }
+            });
+
+            if (!classDetailResponse.ok) {
+              console.error(`获取班级 ${cls.id} 详情失败`);
+              return;
+            }
+
+            const classDetail = await classDetailResponse.json();
+            console.log(`班级 ${cls.id} 详情:`, classDetail);
+
+            // 使用新的数据结构
+            classStudentsMap[cls.id] = classDetail.members || [];
+          } catch (err) {
+            console.error(`获取班级 ${cls.id} 详情失败:`, err);
+          }
+        }));
+
+        setClassStudents(classStudentsMap);
+        console.log("所有班级学生数据:", classStudentsMap);
+
+        // 如果班级列表不为空，默认选择第一个班级
+        if (classesData.length > 0) {
+          setSelectedClassId(classesData[0].id);
         }
 
       } catch (err: any) {
@@ -238,43 +252,11 @@ export default function TrainingProjectsPage() {
       }
     };
 
+
     fetchUserAndData();
   }, [router]);
 
-  // 获取班级学生
-  const fetchClassStudents = async (classId: number) => {
-    if (classStudents[classId]) return;
 
-    try {
-      setLoading(true);
-      const token = localStorage.getItem("token");
-
-      console.log(`获取班级学生: classId=${classId}`);
-      const response = await fetch(`${API_BASE_URL}/classes/${classId}`, {
-        headers: {
-          "Authorization": `Bearer ${token}`
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error("获取班级学生失败");
-      }
-
-      const students = await response.json();
-      console.log(`班级 ${classId} 的学生数据:`, students);
-
-      setClassStudents(prev => ({
-        ...prev,
-        [classId]: students
-      }));
-
-    } catch (err: any) {
-      console.error("获取班级学生失败:", err);
-      setError(err.message || "获取班级学生失败");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // 获取项目详情
   const fetchProjectDetails = async (projectId: number) => {
@@ -1090,6 +1072,8 @@ export default function TrainingProjectsPage() {
                     <h2 className="text-xl font-semibold">团队管理</h2>
                     <div className="flex space-x-2">
                       {(user.role === "admin" || user.role === "teacher") && (
+
+
                           <Dialog open={showCreateTeam} onOpenChange={setShowCreateTeam}>
                             <DialogTrigger asChild>
                               <Button>
@@ -1119,7 +1103,6 @@ export default function TrainingProjectsPage() {
                                       onChange={(e) => {
                                         const classId = parseInt(e.target.value);
                                         setSelectedClassId(classId);
-                                        fetchClassStudents(classId);
                                       }}
                                   >
                                     {classes.map(cls => (
@@ -1133,7 +1116,7 @@ export default function TrainingProjectsPage() {
                                 <div className="max-h-60 overflow-y-auto border rounded-md p-2">
                                   <Label>班级学生列表</Label>
                                   <div className="mt-1 space-y-2">
-                                    {selectedClassId && getClassStudentsForDisplay(selectedClassId).map(member => (
+                                    {selectedClassId && classStudents[selectedClassId]?.map(member => (
                                         <div key={member.id} className="flex items-center space-x-2">
                                           <input
                                               type="checkbox"
@@ -1157,7 +1140,8 @@ export default function TrainingProjectsPage() {
                                   >
                                     <option value="">请选择团队组长</option>
                                     {teamMembers.map(memberId => {
-                                      const member = classMembers.find(m => m.id === memberId);
+                                      // 直接从当前班级成员中查找
+                                      const member = classStudents[selectedClassId || 0]?.find(m => m.id === memberId);
                                       return member ? (
                                           <option key={member.id} value={member.id}>
                                             {member.realName}
@@ -1171,7 +1155,8 @@ export default function TrainingProjectsPage() {
                                   <Label>已选团队成员 ({teamMembers.length})</Label>
                                   <div className="mt-1 space-y-2 max-h-40 overflow-y-auto p-2 border rounded-md">
                                     {teamMembers.map(memberId => {
-                                      const member = classMembers.find(m => m.id === memberId);
+                                      // 直接从当前班级成员中查找
+                                      const member = classStudents[selectedClassId || 0]?.find(m => m.id === memberId);
                                       return member ? (
                                           <div key={member.id} className="flex items-center space-x-2">
                                             <Avatar className="w-6 h-6">
