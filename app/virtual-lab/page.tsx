@@ -70,7 +70,6 @@ interface Experiment {
   progress: number
   thumbnail: string
   tags: string[]
-  creator: string // 创建者信息
   isSystem?: boolean // 是否为系统实验
   assignments?: Assignment[] // 实验任务
 }
@@ -165,7 +164,6 @@ const fetchExperiments = async (): Promise<Experiment[]> => {
     progress: record.progress || 0,
     thumbnail: record.thumbnailUrl || "",
     tags: record.tags || [],
-    creator: record.creator || "系统",
     isSystem: record.isSystem ?? true,
     assignments: record.assignments || [],
   }));
@@ -1179,10 +1177,6 @@ function VirtualLabPage() {
                     <span className="text-sm text-gray-300">{selectedExperiment.category}</span>
                   </div>
                   <div className="flex items-center space-x-2">
-                    <User className="w-4 h-4 text-gray-400" />
-                    <span className="text-sm text-gray-300">创建者: {selectedExperiment.creator}</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
                     <Clock className="w-4 h-4 text-gray-400" />
                     <span className="text-sm text-gray-300">{selectedExperiment.duration} 分钟</span>
                   </div>
@@ -1784,10 +1778,6 @@ function VirtualLabPage() {
                       </div>
                     </div>
                     <CardDescription className="line-clamp-2">{experiment.description}</CardDescription>
-                    <div className="flex items-center text-sm text-gray-500 mt-2">
-                      <User className="w-4 h-4 mr-1" />
-                      <span>创建者: {experiment.creator}</span>
-                    </div>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
