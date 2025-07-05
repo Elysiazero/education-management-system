@@ -1749,7 +1749,7 @@ function VirtualLabPage() {
               </TabsTrigger>
               <TabsTrigger value="published">
                 <List className="w-4 h-4 mr-2" />
-                已发布实验
+                已发布任务
               </TabsTrigger>
             </TabsList>
           )}
