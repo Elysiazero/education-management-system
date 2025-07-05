@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import {useState, useEffect, useCallback} from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -57,6 +57,7 @@ type TaskStatus = "TODO" | "IN_PROGRESS" | "DONE" | "REVIEW";
 
 // 后端DTO接口定义
 interface UserInfoDTO {
+  userId: number;
   id: number;
   username: string;
   realName: string;
@@ -132,7 +133,272 @@ interface ClassDTO {
   id: number;
   name: string;
 }
+// 团队卡片组件
+const TeamCard = ({ team, user }: { team: ProjectTeamDTO; user: UserInfoDTO | null }) => {
+  const [loading, setLoading] = useState(false);
+  const [members, setMembers] = useState<UserInfoDTO[]>([]);
 
+  // 获取团队成员
+  const fetchTeamMembers = useCallback(async (teamId: number) => {
+    try {
+      setLoading(true);
+      const token = localStorage.getItem("accessToken");
+      const response = await fetch(`${API_BASE_URL}/team-members/team/${teamId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        const initialMembersData: UserInfoDTO[] = await response.json();
+        const memberIdsToFetch = new Set<number>();
+        const finalMembersMap = new Map<number, UserInfoDTO>();
+
+        // First add initial data to Map
+        initialMembersData.forEach(member => {
+          memberIdsToFetch.add(member.userId);
+          finalMembersMap.set(member.userId, member);
+        });
+
+        // Get detailed user info
+        await Promise.all(Array.from(memberIdsToFetch).map(async (memberId) => {
+          try {
+            const userResponse = await fetch(`${USER_API_BASE_URL}/me/${memberId}`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            if (userResponse.ok) {
+              const memberDetail = await userResponse.json();
+              console.log("memberDetail:",memberDetail);
+              // Use userId as key to update user info in Map
+              finalMembersMap.set(memberId, memberDetail);
+            }
+          } catch (err) {
+            console.error(`获取成员 ${memberId} 详细信息失败:`, err);
+          }
+        }));
+
+        setMembers(Array.from(finalMembersMap.values()));
+
+      } else {
+        console.error(`获取团队 ${teamId} 成员失败: ${response.status}`);
+      }
+    } catch (err) {
+      console.error(`获取团队 ${teamId} 成员失败:`, err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // 加载团队成员
+  useEffect(() => {
+    if (team.id) {
+      fetchTeamMembers(team.id);
+    }
+  }, [team.id, fetchTeamMembers]);
+
+  const leaderId = team.leaderId || 0;
+  const isMyTeam = user && members.some(m => m?.id === user?.id);
+
+  return (
+      <Card className={isMyTeam ? "ring-2 ring-blue-500 bg-blue-50/30" : ""}>
+        <CardHeader>
+          <CardTitle className="flex items-center justify-between">
+            <div className="flex items-center">
+              {team.name || "未命名团队"}
+              {isMyTeam && <Badge className="ml-2">我的团队</Badge>}
+            </div>
+            <Badge variant="outline">
+              <Users className="w-3 h-3 mr-1" />
+              {members.length}人
+            </Badge>
+          </CardTitle>
+          <CardDescription>
+            {team.description || "无描述"}
+          </CardDescription>
+        </CardHeader>
+
+        <CardContent>
+          <div className="space-y-4">
+            <div>
+              <div className="flex justify-between text-sm mb-2">
+                <span>团队进度</span>
+                <span>{team.progress || 0}%</span>
+              </div>
+              <Progress value={team.progress || 0} />
+            </div>
+
+            <div>
+              <p className="text-sm font-medium mb-2">团队成员</p>
+              <div className="space-y-1">
+                {loading ? (
+                    <div className="flex justify-center py-2">
+                      <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-blue-500"></div>
+                    </div>
+                ) : (
+                    <>
+                      {members.map(member => (
+                          <div key={member.id} className="flex items-center space-x-2 text-sm">
+                            <Avatar className="w-6 h-6">
+                              <AvatarFallback>
+                                {member.realName?.charAt(0) || "U"}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className={member.id === user?.id ? "font-medium text-blue-600" : ""}>
+                        {member.id === user?.id
+                            ? `我 (${member.realName || member.username})`
+                            : member.realName || member.username}
+                      </span>
+                            {leaderId === member.id && (
+                                <Badge variant="outline" className="text-xs">组长</Badge>
+                            )}
+                          </div>
+                      ))}
+
+                      {members.length === 0 && !loading && (
+                          <p className="text-xs text-gray-500">暂无成员信息</p>
+                      )}
+                    </>
+                )}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-sm border-t pt-3">
+              <div><span className="text-gray-500">组长ID</span> {leaderId}</div>
+              <div><span className="text-gray-500">项目ID</span> {team.projectId || '0'}</div>
+              <div><span className="text-gray-500">创建时间</span> {new Date(team.createdAt).toLocaleDateString()}</div>
+              <div><span className="text-gray-500">更新时间</span> {new Date(team.updatedAt).toLocaleDateString()}</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+  );
+};
+
+// 我的团队信息卡片组件
+const MyTeamCard = ({ team, user }: { team: ProjectTeamDTO; user: UserInfoDTO | null }) => {
+  const [loading, setLoading] = useState(false);
+  const [members, setMembers] = useState<UserInfoDTO[]>([]);
+
+  // 获取团队成员
+  const fetchTeamMembers = useCallback(async (teamId: number) => {
+    try {
+      setLoading(true);
+      const token = localStorage.getItem("accessToken");
+      const response = await fetch(`${API_BASE_URL}/team-members/team/${teamId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        const initialMembersData: UserInfoDTO[] = await response.json();
+        const memberIdsToFetch = new Set<number>();
+        const finalMembersMap = new Map<number, UserInfoDTO>();
+
+        // First add initial data to Map
+        initialMembersData.forEach(member => {
+          memberIdsToFetch.add(member.userId);
+          finalMembersMap.set(member.userId, member);
+        });
+
+        // Get detailed user info
+        await Promise.all(Array.from(memberIdsToFetch).map(async (memberId) => {
+          try {
+            const userResponse = await fetch(`${USER_API_BASE_URL}/me/${memberId}`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            if (userResponse.ok) {
+              const memberDetail = await userResponse.json();
+              console.log("memberDetail:",memberDetail);
+              // Use userId as key to update user info in Map
+              finalMembersMap.set(memberId, memberDetail);
+            }
+          } catch (err) {
+            console.error(`获取成员 ${memberId} 详细信息失败:`, err);
+          }
+        }));
+
+        setMembers(Array.from(finalMembersMap.values()));
+
+      } else {
+        console.error(`获取团队 ${teamId} 成员失败: ${response.status}`);
+      }
+    } catch (err) {
+      console.error(`获取团队 ${teamId} 成员失败:`, err);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  // 加载团队成员
+  useEffect(() => {
+    if (team.id) {
+      fetchTeamMembers(team.id);
+    }
+  }, [team.id, fetchTeamMembers]);
+
+  return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center">
+            <UserCheck className="w-5 h-5 mr-2 text-blue-600" />
+            我的团队信息
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="bg-blue-50 p-4 rounded-lg space-y-3">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="font-medium">团队名称:</span>
+                <span className="ml-2 text-blue-700">{team.name}</span>
+              </div>
+              <div>
+                <span className="font-medium">团队进度:</span>
+                <span className="ml-2 text-blue-700">{team.progress}%</span>
+              </div>
+              <div>
+                <span className="font-medium">团队成员:</span>
+                <div className="ml-2 mt-1 flex flex-wrap gap-1">
+                  {loading ? (
+                      <div className="flex justify-center w-full py-2">
+                        <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-blue-500"></div>
+                      </div>
+                  ) : (
+                      members.map(member => (
+                          <Badge
+                              key={member.id}
+                              variant="outline"
+                              className="text-xs bg-blue-100 text-blue-800"
+                          >
+                            {member.id === user?.id ? "我" : member.realName}
+                          </Badge>
+                      ))
+                  )}
+                </div>
+              </div>
+              <div>
+                <span className="font-medium">团队组长:</span>
+                <span className="ml-2 text-blue-700">
+                {members.find(m => m.id === team.leaderId)?.realName || "未指定"}
+              </span>
+              </div>
+            </div>
+
+            {team.score !== null && (
+                <div className="pt-2 border-t border-blue-200">
+                  <div className="flex items-center space-x-2">
+                    <Star className="w-4 h-4 text-yellow-500" />
+                    <span className="text-sm font-medium">团队评分: {team.score}/100</span>
+                  </div>
+                  {team.feedback && (
+                      <div className="mt-2 text-sm">
+                        <span className="font-medium">教师评语:</span>
+                        <p className="mt-1 text-gray-700">{team.feedback}</p>
+                      </div>
+                  )}
+                </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+  );
+};
 export default function TrainingProjectsPage() {
   const [names, setNames] = useState<Record<number, string>>({}); // { [userId]: realName }
   const [user, setUser] = useState<UserInfoDTO | null>(null);
@@ -301,6 +567,7 @@ export default function TrainingProjectsPage() {
 
     fetchUserAndData();
   }, [router]);
+
 //获取团队成员
   const fetchTeamMembers = async (teamId: number) => {
     try {
@@ -1227,69 +1494,7 @@ export default function TrainingProjectsPage() {
                       </CardContent>
                     </Card>
 
-                    {userTeam && (
-                        <Card>
-                          <CardHeader>
-                            <CardTitle className="flex items-center">
-                              <UserCheck className="w-5 h-5 mr-2 text-blue-600" />
-                              我的团队信息
-                            </CardTitle>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="bg-blue-50 p-4 rounded-lg space-y-3">
-                              <div className="grid grid-cols-2 gap-4 text-sm">
-                                <div>
-                                  <span className="font-medium">团队名称:</span>
-                                  <span className="ml-2 text-blue-700">{userTeam.name}</span>
-                                </div>
-                                <div>
-                                  <span className="font-medium">团队进度:</span>
-                                  <span className="ml-2 text-blue-700">{userTeam.progress}%</span>
-                                </div>
-                                <div>
-                                  <span className="font-medium">团队成员:</span>
-                                  <div className="ml-2 mt-1 flex flex-wrap gap-1">
-                                    {userTeam.members.length === 0 ? (
-                                        <span className="text-xs text-gray-500">暂无成员</span>
-                                    ) : (
-                                        userTeam.members.map(member => (
-                                            <Badge
-                                                key={member.id}
-                                                variant="outline"
-                                                className="text-xs bg-blue-100 text-blue-800"
-                                            >
-                                              {member.id === user.id ? "我" : member.realName}
-                                            </Badge>
-                                        ))
-                                    )}
-                                  </div>
-                                </div>
-                                <div>
-                                  <span className="font-medium">团队组长:</span>
-                                  <span className="ml-2 text-blue-700">
-            {userTeam.members.find(m => m.id === userTeam.leaderId)?.realName || "未指定"}
-          </span>
-                                </div>
-                              </div>
-
-                              {userTeam.score !== null && (
-                                  <div className="pt-2 border-t border-blue-200">
-                                    <div className="flex items-center space-x-2">
-                                      <Star className="w-4 h-4 text-yellow-500" />
-                                      <span className="text-sm font-medium">团队评分: {userTeam.score}/100</span>
-                                    </div>
-                                    {userTeam.feedback && (
-                                        <div className="mt-2 text-sm">
-                                          <span className="font-medium">教师评语:</span>
-                                          <p className="mt-1 text-gray-700">{userTeam.feedback}</p>
-                                        </div>
-                                    )}
-                                  </div>
-                              )}
-                            </div>
-                          </CardContent>
-                        </Card>
-                    )}
+                    {userTeam && <MyTeamCard team={userTeam} user={user} />}
                   </div>
 
                   <div className="space-y-6">
@@ -1446,130 +1651,9 @@ export default function TrainingProjectsPage() {
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {(selectedProject?.teams || []).map(team => {
-                      // 确保team对象存在
-                      if (!team) return null;
-
-                      // 确保members数组存在
-                      const safeMembers = team.members || [];
-
-                      // 确保leaderId存在
-                      const leaderId = team.leaderId || 0;
-
-                      // 修复：使用正确的成员检查逻辑
-                      const isMyTeam = user && safeMembers.some(m => m?.id === user?.id);
-
-                      return (
-                          <Card key={team.id} className={isMyTeam ? "ring-2 ring-blue-500 bg-blue-50/30" : ""}>
-                            {/* 卡片头部 */}
-                            <CardHeader>
-                              <CardTitle className="flex items-center justify-between">
-                                <div className="flex items-center">
-                                  {team.name || "未命名团队"}
-                                  {isMyTeam && (
-                                      <Badge className="ml-2">我的团队</Badge>
-                                  )}
-                                </div>
-                                <Badge variant="outline">
-                                  <Users className="w-3 h-3 mr-1" />
-                                  {safeMembers.length}人
-                                </Badge>
-                              </CardTitle>
-                              <CardDescription>
-                                {team.description || "无描述"}
-                              </CardDescription>
-                            </CardHeader>
-
-                            {/* 卡片内容 */}
-                            <CardContent>
-                              <div className="space-y-4">
-                                {/* 进度条 */}
-                                <div>
-                                  <div className="flex justify-between text-sm mb-2">
-                                    <span>团队进度</span>
-                                    <span>{team.progress || 0}%</span>
-                                  </div>
-                                  <Progress value={team.progress || 0} />
-                                </div>
-
-                                {/* 团队成员 - 修复：确保所有成员都被渲染 */}
-                                <div>
-                                  <p className="text-sm font-medium mb-2">团队成员</p>
-                                  <div className="space-y-1">
-                                    {safeMembers.map(member => {
-                                      // 确保member对象存在
-                                      if (!member) return null;
-
-                                      // 修复：使用member.id作为key，确保唯一性
-                                      return (
-                                          <div key={member.id} className="flex items-center space-x-2 text-sm">
-                                            <Avatar className="w-6 h-6">
-                                              <AvatarFallback>
-                                                {member.realName?.charAt(0) || "U"}
-                                              </AvatarFallback>
-                                            </Avatar>
-                                            <span className={member.id === user?.id ? "font-medium text-blue-600" : ""}>
-                        {member.id === user?.id
-                            ? `我 (${member.realName || member.username})`
-                            : member.realName || member.username}
-                      </span>
-                                            {leaderId === member.id && (
-                                                <Badge variant="outline" className="text-xs">组长</Badge>
-                                            )}
-                                          </div>
-                                      );
-                                    })}
-
-                                    {/* 处理空成员情况 */}
-                                    {safeMembers.length === 0 && (
-                                        <p className="text-xs text-gray-500">暂无成员信息</p>
-                                    )}
-                                  </div>
-                                </div>
-
-                                {/* 团队元数据 */}
-                                <div className="grid grid-cols-2 gap-3 text-sm border-t pt-3">
-                                  <div><span className="text-gray-500">组长ID</span> {leaderId}</div>
-                                  <div><span className="text-gray-500">项目ID</span> {team.projectId ||'0'}</div>
-                                  <div><span className="text-gray-500">创建时间</span> {new Date(team.createdAt).toLocaleDateString()}</div>
-                                  <div><span className="text-gray-500">更新时间</span> {new Date(team.updatedAt).toLocaleDateString()}</div>
-                                </div>
-                              </div>
-                            </CardContent>
-
-                            {/* 操作按钮 */}
-                            <CardContent className="pt-0 flex flex-wrap gap-2">
-                              {(user?.role === "admin" || user?.role === "teacher") && (
-                                  <>
-                                    <Button variant="outline" size="sm" onClick={() => {
-                                      setCurrentTeamForGrade(team);
-                                      setShowGradeTeam(true);
-                                    }}>
-                                      <Star className="w-4 h-4 mr-1" />评分
-                                    </Button>
-                                    <Button variant="outline" size="sm" onClick={() => {
-                                      setCurrentTeamForTaskAssignment(team);
-                                      setShowAssignTask(true);
-                                    }}>
-                                      <Send className="w-4 h-4 mr-1" />指派任务
-                                    </Button>
-                                  </>
-                              )}
-                            </CardContent>
-                          </Card>
-                      );
-                    })}
-
-                    {/* 处理空团队情况 */}
-                    {(selectedProject?.teams || []).length === 0 && (
-                        <div className="col-span-full text-center py-8 text-gray-500">
-                          <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                          <p>暂无团队数据</p>
-                          <p className="text-sm mt-2">
-                            项目ID: {selectedProject?.id}，团队数量: {(selectedProject?.teams || []).length}
-                          </p>
-                        </div>
-                    )}
+                    {(selectedProject?.teams || []).map(team => (
+                        team ? <TeamCard key={team.id} team={team} user={user} /> : null
+                    ))}
                   </div>
                 </div>
               </TabsContent>
@@ -1655,7 +1739,7 @@ export default function TrainingProjectsPage() {
                     </div>
                   </CardHeader>
                   <CardContent>
-                    // 修改后的任务卡片展示
+
                     <div className="space-y-4">
 
                       {visibleTasks.map(task => {
