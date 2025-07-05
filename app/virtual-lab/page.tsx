@@ -43,6 +43,7 @@ import {
   DialogTrigger,
   DialogFooter,
   DialogClose,
+  DialogDescription,
 } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
@@ -482,7 +483,7 @@ function VirtualLabPage() {
   const { data: studentTasks = [], isLoading: studentTasksLoading } = useQuery<Assignment[]>({
     queryKey: ['studentTasks', user?.id],
     queryFn: () => fetchMyTasks(),
-    enabled: user?.role === 'student',
+    enabled: !!user && user.role === 'student',
     staleTime: 1000 * 60 * 5
   });
 
@@ -490,7 +491,7 @@ function VirtualLabPage() {
   const { data: teacherTasks = [], isLoading: teacherTasksLoading } = useQuery<Assignment[]>({
     queryKey: ['teacherTasks', user?.id],
     queryFn: () => fetchTeacherTasks(),
-    enabled: user?.role === 'teacher',
+    enabled: !!user && user.role === 'teacher',
     staleTime: 1000 * 60 * 5
   });
 
@@ -541,20 +542,10 @@ function VirtualLabPage() {
     mutationFn: ({ newExperiment, files }: { newExperiment: any, files: any }) =>
       createExperiment(newExperiment, files),
     onSuccess: (newExp) => {
-      queryClient.setQueryData(['experiments'], (old: any) => {
-        const oldData = old || { experiments: [], totalPages: 0 };
-        return {
-          experiments: [newExp, ...oldData.experiments],
-          totalPages: oldData.totalPages
-        };
-      });
+      queryClient.invalidateQueries({ queryKey: ['experiments'] });
       setIsCreating(false);
       setNewExperiment({
-        title: "",
-        description: "",
-        category: "化学",
-        difficulty: 3,
-        duration: 30,
+        title: "", description: "", category: "化学", difficulty: 3, duration: 30,
       });
       setSimulationPackage(null);
       setThumbnailFile(null);
@@ -566,9 +557,24 @@ function VirtualLabPage() {
       submitReport(taskId, reportData, attachments),
     onSuccess: (newReport) => {
       // 更新缓存数据...
+      queryClient.invalidateQueries({ queryKey: ['studentTasks', user?.id] });
       setIsSubmittingReport(false);
       setReportContent("");
       setAttachments([]);
+    }
+  });
+  const publishAssignmentMutation = useMutation({
+    mutationFn: publishAssignment,
+    onSuccess: () => {
+      // MODIFIED: 发布成功后，让教师任务列表缓存失效，自动刷新列表
+      queryClient.invalidateQueries({ queryKey: ['teacherTasks'] });
+      setIsPublishing(false);
+      alert("任务发布成功！");
+    },
+    onError: (error: Error) => {
+      console.error("发布任务失败:", error);
+      // MODIFIED: 优化错误提示，显示后端返回的具体信息
+      alert(`发布任务失败: ${error.message}`);
     }
   });
 
@@ -579,6 +585,42 @@ function VirtualLabPage() {
       setSimulationStarted(true);
     }
   });
+
+  const handlePublishAssignment = () => {
+    // MODIFIED: 增加数据校验
+    if (!currentExperiment) {
+      alert("错误：未选中任何实验。");
+      return;
+    }
+    if (!newAssignment.classId) {
+      alert("请选择要指派的班级。");
+      return;
+    }
+
+    // MODIFIED: 根据选择是“单个学生”还是“全班”来构建学生ID列表
+    const studentIds = newAssignment.studentId
+      ? [newAssignment.studentId]
+      : classStudentsMap[Number(newAssignment.classId)]?.map(s => s.id.toString()) || [];
+
+    if (studentIds.length === 0) {
+      alert("该班级下没有学生，无法指派。");
+      return;
+    }
+
+    // MODIFIED: 整合所有需要提交的数据
+    const assignmentData = {
+      experimentId: currentExperiment.id,
+      taskName: newAssignment.taskName,
+      classId: newAssignment.classId,
+      startTime: newAssignment.startTime,
+      endTime: newAssignment.endTime,
+      requirements: newAssignment.requirements,
+      studentIds: studentIds,
+    };
+
+    // MODIFIED: 调用mutation来执行发布操作
+    publishAssignmentMutation.mutate(assignmentData);
+  };
 
   // 获取班级和学生数据
   useEffect(() => {
@@ -1414,6 +1456,9 @@ function VirtualLabPage() {
               <DialogContent className="sm:max-w-[600px]">
                 <DialogHeader>
                   <DialogTitle>{isEditing ? "编辑实验" : "创建新实验"}</DialogTitle>
+                  <DialogDescription>
+                    填写以下表单来创建或编辑一个虚拟仿真实验。
+                  </DialogDescription>
                 </DialogHeader>
                 <div className="grid gap-4 py-4">
                   <div className="grid grid-cols-4 items-center gap-4">
@@ -1613,82 +1658,79 @@ function VirtualLabPage() {
           <TabsContent value="library">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredExperiments.map((experiment) => (
-                <Card
-                  key={experiment.id}
-                  className="cursor-pointer hover:shadow-lg transition-shadow relative"
-                  onClick={() => handleSelectExperiment(experiment)}
-                >
-                  <div className="aspect-video bg-gray-100 rounded-t-lg overflow-hidden">
-                    <div className="w-full h-full bg-gray-200 flex items-center justify-center">
-                      <FlaskConical className="w-12 h-12 text-gray-400" />
+                <Card key={experiment.id} className="flex flex-col justify-between cursor-pointer hover:shadow-lg transition-shadow">
+                  <div>
+                    <div className="aspect-video bg-gray-100 rounded-t-lg overflow-hidden relative" onClick={() => handleSelectExperiment(experiment)}>
+                      <div className="w-full h-full bg-gray-200 flex items-center justify-center">
+                        <FlaskConical className="w-12 h-12 text-gray-400" />
+                      </div>
+                      <div className="absolute top-2 right-2">
+                        <Badge variant={experiment.isSystem ? "default" : "secondary"} className="flex items-center">
+                          {getCategoryIcon(experiment.category)}
+                          <span className="ml-1">{experiment.isSystem ? "系统实验" : "自定义实验"}</span>
+                        </Badge>
+                      </div>
                     </div>
-                    <div className="absolute top-2 right-2">
-                      <Badge variant={experiment.isSystem ? "default" : "secondary"} className="flex items-center">
-                        {getCategoryIcon(experiment.category)}
-                        <span className="ml-1">{experiment.isSystem ? "系统实验" : "自定义实验"}</span>
-                      </Badge>
+                    <div onClick={() => handleSelectExperiment(experiment)}>
+                      <CardHeader>
+                        <div className="flex justify-between items-start">
+                          <CardTitle className="text-lg">{experiment.title}</CardTitle>
+                          <div className="flex items-center space-x-1">
+                            <span className="text-xs text-gray-500">难度:</span>
+                            {renderStarRating(experiment.difficulty)}
+                          </div>
+                        </div>
+                        <CardDescription className="line-clamp-2">{experiment.description}</CardDescription>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between">
+
+                            <div className="flex items-center space-x-1">
+                              <Clock className="w-4 h-4 text-gray-500" />
+                              <span className="text-sm text-gray-600">{experiment.duration} 分钟</span>
+                            </div>
+                          </div>
+                          {/* 只对学生显示进度条 */}
+                          {user?.role === "student" && experiment.progress > 0 && (
+                            <div>
+                              <div className="flex justify-between text-sm mb-2">
+                                <span>进度</span>
+                                <span>{experiment.progress}%</span>
+                              </div>
+                              <Progress value={experiment.progress} />
+                            </div>
+                          )}
+                        </div>
+                      </CardContent>
                     </div>
                   </div>
-                  <CardHeader>
-                    <div className="flex justify-between items-start">
-                      <CardTitle className="text-lg">{experiment.title}</CardTitle>
-                      <div className="flex items-center space-x-1">
-                        <span className="text-xs text-gray-500">难度:</span>
-                        {renderStarRating(experiment.difficulty)}
-                      </div>
-                    </div>
-                    <CardDescription className="line-clamp-2">{experiment.description}</CardDescription>
-                  </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-1">
-                          <Clock className="w-4 h-4 text-gray-500" />
-                          <span className="text-sm text-gray-600">{experiment.duration} 分钟</span>
-                        </div>
-                      </div>
-
-                      {/* 只对学生显示进度条 */}
-                      {user?.role === "student" && experiment.progress > 0 && (
-                        <div>
-                          <div className="flex justify-between text-sm mb-2">
-                            <span>进度</span>
-                            <span>{experiment.progress}%</span>
-                          </div>
-                          <Progress value={experiment.progress} />
-                        </div>
-                      )}
-
-                      {/* 操作按钮 - 根据用户角色显示 */}
-                      {user?.role === "teacher" ? (
-                        <div className="flex justify-between mt-4">
-                          <Dialog
-                            open={isPublishing}
-                            onOpenChange={(open) => {
-                              setIsPublishing(open);
-                              if (open) {
-                                setCurrentExperiment(experiment);
-                                setNewAssignment({
-                                  taskName: experiment.title,
-                                  classId: "",
-                                  studentId: "",
-                                  startTime: "",
-                                  endTime: "",
-                                  requirements: ""
-                                });
-                              }
-                            }}
-                          >
+                      {(user?.role === "teacher" || user?.role === "admin") ? (
+                        <div className="flex justify-end gap-2 mt-4">
+                          <Dialog open={isPublishing && currentExperiment?.id === experiment.id} onOpenChange={(open) => { if (!open) { setIsPublishing(false); setCurrentExperiment(null); } }}>
                             <DialogTrigger asChild>
-                              <Button variant="default" size="sm">
-                                <Send className="w-4 h-4 mr-1" />
-                                发布
+                              {/* MODIFIED: 修复发布按钮的点击逻辑 */}
+                              <Button variant="default" size="sm" onClick={(e) => {
+                                e.stopPropagation(); // 阻止事件冒泡，防止触发卡片点击
+                                setCurrentExperiment(experiment);
+                                setNewAssignment({ // 预填表单
+                                  taskName: experiment.title,
+                                  classId: "", studentId: "", startTime: "", endTime: "",
+                                  requirements: experiment.description
+                                });
+                                setIsPublishing(true);
+                              }}>
+                                <Send className="w-4 h-4 mr-1" />发布
                               </Button>
                             </DialogTrigger>
                             <DialogContent className="sm:max-w-md">
                               <DialogHeader>
-                                <DialogTitle>发布实验任务</DialogTitle>
-                                <p className="text-sm text-gray-500">发布实验: {experiment.title}</p>
+                                <DialogTitle>发布实验任务: {experiment.title}</DialogTitle>
+                                <DialogDescription>
+                                  配置任务详情，并将此实验指派给指定班级或学生。
+                                </DialogDescription>
                               </DialogHeader>
                               <div className="grid gap-4 py-4">
                                 <div className="grid grid-cols-4 items-center gap-4">
@@ -1804,10 +1846,8 @@ function VirtualLabPage() {
                                 >
                                   取消
                                 </Button>
-                                <Button
-                                  onClick={() => { }}
-                                >
-                                  发布任务
+                                <Button onClick={handlePublishAssignment} disabled={publishAssignmentMutation.isPending}>
+                                  {publishAssignmentMutation.isPending ? "发布中..." : "发布任务"}
                                 </Button>
                               </DialogFooter>
                             </DialogContent>
@@ -1933,6 +1973,11 @@ function VirtualLabPage() {
                         <div className="flex items-center justify-between">
                           <div className="flex items-center space-x-1">
                             <Clock className="w-4 h-4 text-gray-500" />
+                            <span className="text-sm text-gray-600">开始: {new Date(task.startTime).toLocaleDateString()}</span>
+
+                          </div>
+                          <div className="flex items-center space-x-1">
+                            <Clock className="w-4 h-4 text-gray-500" />
                             <span className="text-sm text-gray-600">截止: {new Date(task.endTime).toLocaleDateString()}</span>
                           </div>
                           <Badge variant={task.status === "已批改" ? "default" : "secondary"} className="text-xs">
@@ -1942,7 +1987,6 @@ function VirtualLabPage() {
 
                         <div className="mt-3">
                           <h4 className="text-sm font-medium mb-2">班级: {task.className}</h4>
-                          <p className="text-xs text-gray-600">学生数: {task.assignedTo.length}</p>
                         </div>
 
                         <Button
