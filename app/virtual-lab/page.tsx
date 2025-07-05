@@ -57,7 +57,6 @@ interface User {
   role: "student" | "teacher" | "admin"
   classId?: string
 }
-
 interface Experiment {
   id: string
   title: string
@@ -65,7 +64,6 @@ interface Experiment {
   category: string
   difficulty: number // 1-5 星级难度
   duration: number
-  rating: number
   completed: boolean
   progress: number
   thumbnail: string
@@ -132,6 +130,37 @@ const fetchFromApi = async (url: string, options?: RequestInit) => {
   return responseData.data || null;
 };
 
+// 【新增】数据规范化辅助函数
+const normalizeExperiment = (record: any): Experiment => {
+  let creatorName = "系统"; // 默认值
+
+  if (record && record.creator) {
+    if (typeof record.creator === 'object' && record.creator !== null) {
+      // 如果是对象, 优先使用 realName, 其次是 username
+      creatorName = record.creator.realName || record.creator.username || "未知作者";
+    } else {
+      // 如果不是对象 (例如直接是字符串或数字), 转换为字符串
+      creatorName = String(record.creator);
+    }
+  }
+
+  return {
+    id: String(record.id),
+    title: record.title || "无标题实验",
+    category: record.subject || "其它",
+    description: record.description || "",
+    difficulty: record.difficulty || 1,
+    duration: record.duration || 30,
+    completed: record.completed || false,
+    progress: record.progress || 0,
+    thumbnail: record.thumbnailUrl || "",
+    creator: creatorName, // 使用我们安全处理过的字符串
+    isSystem: record.isSystem ?? true,
+    assignments: record.assignments || [],
+  };
+};
+
+
 // 获取token的函数
 const getAuthToken = () => {
   return localStorage.getItem("accessToken");
@@ -152,21 +181,37 @@ const fetchExperiments = async (): Promise<Experiment[]> => {
 
   const responseData = await response.json();
   const records = responseData?.data?.records || [];
-  return records.map((record: any) => ({
-    id: String(record.id),
-    title: record.title || "无标题实验",
-    category: record.subject || "其它",
-    description: record.description || "",
-    difficulty: record.difficulty || 1,
-    duration: record.duration || 30,
-    rating: record.rating || 0,
-    completed: record.completed || false,
-    progress: record.progress || 0,
-    thumbnail: record.thumbnailUrl || "",
-    creator: record.creator || "系统",
-    isSystem: record.isSystem ?? true,
-    assignments: record.assignments || [],
-  }));
+  return records.map((record: any) => {
+    let creatorName = "系统"; // 默认值
+
+    // 检查 creator 字段是否存在
+    if (record.creator) {
+      // 检查 creator 是否为非null的对象
+      if (typeof record.creator === 'object' && record.creator !== null) {
+        // 如果是对象, 优先使用 realName, 其次是 username
+        creatorName = record.creator.realName || record.creator.username || "未知作者";
+      } else {
+        // 如果不是对象 (例如直接是字符串或数字), 转换为字符串
+        creatorName = String(record.creator);
+      }
+    }
+
+    return {
+      id: String(record.id),
+      title: record.title || "无标题实验",
+      category: record.subject || "其它",
+      description: record.description || "",
+      difficulty: record.difficulty || 1,
+      duration: record.duration || 30,
+
+      completed: record.completed || false,
+      progress: record.progress || 0,
+      thumbnail: record.thumbnailUrl || "",
+      creator: creatorName, // 使用我们安全处理过的字符串
+      isSystem: record.isSystem ?? true,
+      assignments: record.assignments || [],
+    };
+  });
 };
 
 // 获取当前用户信息
@@ -305,19 +350,14 @@ const deleteExperiment = async (id: string): Promise<void> => {
 
 // 获取实验详情
 const getExperimentById = async (id: string): Promise<Experiment> => {
-  const token = getAuthToken();
-  if (!token) throw new Error('用户未登录');
-
-  const response = await fetch(`${API_BASE_URL}/experiments/${id}`, {
-    headers: {
-      'Authorization': `Bearer ${token}`
-    }
-  });
-
-  if (!response.ok) throw new Error('获取实验详情失败');
-  return response.json();
+  const rawData = await fetchFromApi(`${API_BASE_URL}/experiments/${id}`);
+  if (!rawData) {
+    // 如果API没有返回数据，可以抛出错误或返回一个默认值
+    throw new Error(`无法找到ID为 ${id} 的实验`);
+  }
+  // 使用你已经写好的 normalizeExperiment 函数来处理返回的数据
+  return normalizeExperiment(rawData);
 };
-
 // 获取我的任务列表（学生）
 const fetchMyTasks = async (status?: string): Promise<Assignment[]> => {
   const token = getAuthToken();
@@ -825,22 +865,36 @@ function VirtualLabPage() {
     }
   }
 
-  const renderStarRating = (rating: number) => {
+  const renderStarRating = (difficulty: number) => {
     return (
       <div className="flex">
         {[...Array(5)].map((_, i) => (
           <Star
             key={i}
-            className={`w-4 h-4 ${i < rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`}
+            className={`w-4 h-4 ${i < difficulty ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`}
           />
         ))}
       </div>
     )
   }
 
+
+  const handleSelectExperiment = async (experiment: Experiment) => {
+    setSelectedExperiment(experiment);
+    try {
+      const detailedData = await getExperimentById(experiment.id);
+      if (detailedData) {
+        // 详情数据已经被normalizeExperiment处理，可以直接使用
+        setSelectedExperiment(detailedData);
+      }
+    } catch (error) {
+      console.error("获取实验详情失败:", error);
+    }
+  };
+
   const handleCreateExperiment = () => {
     createExperimentMutation.mutate(newExperiment);
-  }
+  };
 
   const handleUpdateExperiment = () => {
     if (!currentExperiment) return;
@@ -1149,10 +1203,6 @@ function VirtualLabPage() {
                   <div className="flex items-center space-x-2">
                     <span className="text-sm text-gray-300">难度:</span>
                     {renderStarRating(selectedExperiment.difficulty)}
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Star className="w-4 h-4 text-yellow-400" />
-                    <span className="text-sm text-gray-300">{selectedExperiment.rating}/5.0</span>
                   </div>
                 </CardContent>
               </Card>
@@ -1710,7 +1760,7 @@ function VirtualLabPage() {
                 <Card
                   key={experiment.id}
                   className="cursor-pointer hover:shadow-lg transition-shadow relative"
-                  onClick={() => setSelectedExperiment(experiment)}
+                  onClick={() => handleSelectExperiment(experiment)}
                 >
                   <div className="aspect-video bg-gray-100 rounded-t-lg overflow-hidden">
                     <div className="w-full h-full bg-gray-200 flex items-center justify-center">
@@ -1732,10 +1782,6 @@ function VirtualLabPage() {
                       </div>
                     </div>
                     <CardDescription className="line-clamp-2">{experiment.description}</CardDescription>
-                    <div className="flex items-center text-sm text-gray-500 mt-2">
-                      <User className="w-4 h-4 mr-1" />
-                      <span>创建者: {experiment.creator}</span>
-                    </div>
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-4">
@@ -1743,10 +1789,6 @@ function VirtualLabPage() {
                         <div className="flex items-center space-x-1">
                           <Clock className="w-4 h-4 text-gray-500" />
                           <span className="text-sm text-gray-600">{experiment.duration} 分钟</span>
-                        </div>
-                        <div className="flex items-center space-x-1">
-                          <Star className="w-4 h-4 text-yellow-400" />
-                          <span className="text-sm text-gray-600">{experiment.rating}</span>
                         </div>
                       </div>
 
@@ -2047,7 +2089,7 @@ function VirtualLabPage() {
                         key={task.id}
                         className="cursor-pointer hover:shadow-lg transition-shadow"
                         onClick={() => {
-                          if (experiment) setSelectedExperiment(experiment);
+                          if (experiment) handleSelectExperiment(experiment);
                         }}
                       >
                         {experiment && (
