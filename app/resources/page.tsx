@@ -18,6 +18,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Search, Upload, FileText, Video, Image, File, Plus, Filter, Download, Star, Check, X, Clock, ThumbsUp } from "lucide-react"
+import { toast } from "sonner"
 
 interface User {
   id: string
@@ -27,20 +28,18 @@ interface User {
 }
 
 interface Resource {
-  id: string
-  title: string
+  id: number
+  fileName: string
+  userName: string
   description: string
-  type: "document" | "video" | "image" | "other"
-  category: string
-  difficulty: "beginner" | "intermediate" | "advanced"
-  fileSize: string
-  uploadDate: string
-  uploadedBy: string
-  downloads: number
-  rating: number
-  tags: string[]
-  approved: boolean
-  url: string
+  resourceType: string
+  ossUrl: string
+  createdAt: string
+  metadata?: {
+    size: string
+    uploader: string
+  }
+  approved?: boolean
 }
 
 export default function ResourcesPage() {
@@ -50,18 +49,18 @@ export default function ResourcesPage() {
   const [searchTerm, setSearchTerm] = useState('')
   const [typeFilter, setTypeFilter] = useState<string>('all')
   const [categoryFilter, setCategoryFilter] = useState<string>('all')
-  const [difficultyFilter, setDifficultyFilter] = useState<string>('all')
   const [showUpload, setShowUpload] = useState(false)
   const [newResource, setNewResource] = useState({
-    title: '',
+    fileName: '',
     description: '',
-    type: 'document' as 'document' | 'video' | 'image' | 'other',
-    category: '',
-    difficulty: 'beginner' as 'beginner' | 'intermediate' | 'advanced',
-    tags: ''
+    resourceType: 'PDF',
+    userName: '',
+    file: null as File | null
   })
   const [activeTab, setActiveTab] = useState('all')
+  const [isLoading, setIsLoading] = useState(true)
   const router = useRouter()
+  const API_BASE_URL = "http://localhost:8080";
 
   useEffect(() => {
     const userData = localStorage.getItem('user')
@@ -69,175 +68,38 @@ export default function ResourcesPage() {
       router.push('/login')
       return
     }
-    setUser(JSON.parse(userData))
 
-    // 模拟资源数据
-    const mockResources: Resource[] = [
-      {
-        id: '1',
-        title: 'React开发指南',
-        description: '完整的React开发教程，包含基础概念到高级应用',
-        type: 'document',
-        category: '前端开发',
-        difficulty: 'intermediate',
-        fileSize: '2.5 MB',
-        uploadDate: '2024-01-05',
-        uploadedBy: '李老师',
-        downloads: 156,
-        rating: 4.8,
-        tags: ['React', 'JavaScript', '前端'],
-        approved: true,
-        url: '/placeholder.pdf'
-      },
-      {
-        id: '2',
-        title: 'JavaScript基础视频教程',
-        description: '从零开始学习JavaScript编程语言',
-        type: 'video',
-        category: '编程基础',
-        difficulty: 'beginner',
-        fileSize: '125 MB',
-        uploadDate: '2024-01-03',
-        uploadedBy: '王老师',
-        downloads: 89,
-        rating: 4.5,
-        tags: ['JavaScript', '编程', '基础'],
-        approved: true,
-        url: '/placeholder-video.mp4'
-      },
-      {
-        id: '3',
-        title: '数据库设计原理',
-        description: '关系型数据库设计的基本原理和最佳实践',
-        type: 'document',
-        category: '数据库',
-        difficulty: 'advanced',
-        fileSize: '3.2 MB',
-        uploadDate: '2024-01-01',
-        uploadedBy: '张老师',
-        downloads: 67,
-        rating: 4.6,
-        tags: ['数据库', 'SQL', '设计'],
-        approved: true,
-        url: '/placeholder.pdf'
-      },
-      {
-        id: '4',
-        title: 'UI设计规范图集',
-        description: '现代Web应用UI设计规范和示例',
-        type: 'image',
-        category: 'UI设计',
-        difficulty: 'intermediate',
-        fileSize: '15.8 MB',
-        uploadDate: '2023-12-28',
-        uploadedBy: '赵老师',
-        downloads: 234,
-        rating: 4.9,
-        tags: ['UI', '设计', '规范'],
-        approved: true,
-        url: '/placeholder-images.zip'
-      },
-      {
-        id: '5',
-        title: 'Python数据分析实战',
-        description: '使用Python进行数据分析的实际案例和代码',
-        type: 'other',
-        category: '数据分析',
-        difficulty: 'advanced',
-        fileSize: '8.7 MB',
-        uploadDate: '2023-12-25',
-        uploadedBy: '刘老师',
-        downloads: 123,
-        rating: 4.7,
-        tags: ['Python', '数据分析', '实战'],
-        approved: false,
-        url: '/placeholder-code.zip'
-      },
-      {
-        id: '6',
-        title: '机器学习入门',
-        description: '机器学习基础概念与算法实现',
-        type: 'document',
-        category: '人工智能',
-        difficulty: 'intermediate',
-        fileSize: '4.3 MB',
-        uploadDate: '2024-01-10',
-        uploadedBy: '陈老师',
-        downloads: 98,
-        rating: 4.6,
-        tags: ['机器学习', 'AI', '算法'],
-        approved: true,
-        url: '/placeholder.pdf'
-      },
-      {
-        id: '7',
-        title: 'Node.js后端开发实战',
-        description: '使用Node.js构建高性能后端服务',
-        type: 'video',
-        category: '后端开发',
-        difficulty: 'advanced',
-        fileSize: '210 MB',
-        uploadDate: '2024-01-08',
-        uploadedBy: '吴老师',
-        downloads: 76,
-        rating: 4.7,
-        tags: ['Node.js', '后端', 'JavaScript'],
-        approved: true,
-        url: '/placeholder-video.mp4'
-      },
-      {
-        id: '8',
-        title: '移动应用设计模板',
-        description: '适用于iOS和Android的移动应用UI设计模板',
-        type: 'image',
-        category: 'UI设计',
-        difficulty: 'beginner',
-        fileSize: '22.1 MB',
-        uploadDate: '2024-01-02',
-        uploadedBy: '郑老师',
-        downloads: 189,
-        rating: 4.8,
-        tags: ['移动应用', 'UI', '设计'],
-        approved: true,
-        url: '/placeholder-images.zip'
-      },
-      {
-        id: '9',
-        title: '数据结构与算法习题集',
-        description: '常见数据结构与算法问题及解答',
-        type: 'document',
-        category: '计算机科学',
-        difficulty: 'advanced',
-        fileSize: '1.8 MB',
-        uploadDate: '2023-12-30',
-        uploadedBy: '周老师',
-        downloads: 143,
-        rating: 4.9,
-        tags: ['数据结构', '算法', '编程'],
-        approved: true,
-        url: '/placeholder.pdf'
-      },
-      {
-        id: '10',
-        title: 'DevOps实践指南',
-        description: '现代软件开发与运维最佳实践',
-        type: 'other',
-        category: '运维',
-        difficulty: 'intermediate',
-        fileSize: '5.6 MB',
-        uploadDate: '2023-12-22',
-        uploadedBy: '孙老师',
-        downloads: 87,
-        rating: 4.5,
-        tags: ['DevOps', '运维', 'CI/CD'],
-        approved: true,
-        url: '/placeholder-code.zip'
-      }
-    ]
+    const parsedUser = JSON.parse(userData)
+    setUser(parsedUser)
+    setNewResource(prev => ({...prev, userName: parsedUser.name}))
 
-    setResources(mockResources)
-    setFilteredResources(mockResources.filter(r => r.approved))
+    fetchResources()
   }, [router])
+
+  const fetchResources = async () => {
+    setIsLoading(true)
+    try {
+      const response = await fetch(`${API_BASE_URL}/oss/check/all?page=1&size=100`)
+      const data = await response.json()
+      console.log("资源列表响应:", data); // 添加调试日志
+
+      if (data.code === 200) {
+        const resourcesWithStatus = data.data.records.map((res: any) => ({
+          ...res,
+          approved: res.userName === 'admin' || res.userName.includes('老师')
+        }))
+
+        setResources(resourcesWithStatus)
+        setFilteredResources(resourcesWithStatus.filter((r: Resource) => r.approved))
+      } else {
+        toast.error('获取资源失败: ' + data.message)
+      }
+    } catch (error) {
+      toast.error('网络错误: ' + (error as Error).message)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   useEffect(() => {
     let filtered = resources
@@ -248,12 +110,13 @@ export default function ResourcesPage() {
     } else if (activeTab === 'recent') {
       // 最近上传：按日期倒序
       filtered = [...filtered]
-          .sort((a, b) => new Date(b.uploadDate).getTime() - new Date(a.uploadDate).getTime())
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
           .slice(0, 5)
     } else if (activeTab === 'popular') {
-      // 热门下载：按下载量排序
+      // 热门下载：模拟下载量排序
       filtered = [...filtered]
-          .sort((a, b) => b.downloads - a.downloads)
+          .sort((a, b) =>
+              (b.metadata?.size || '0MB').localeCompare(a.metadata?.size || '0MB'))
           .slice(0, 5)
     } else {
       // 全部资源：显示已审核的
@@ -263,103 +126,228 @@ export default function ResourcesPage() {
     // 应用搜索和筛选条件
     if (searchTerm) {
       filtered = filtered.filter(resource =>
-          resource.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          resource.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          resource.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()))
+          resource.fileName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          resource.description.toLowerCase().includes(searchTerm.toLowerCase())
       )
     }
 
     if (typeFilter !== 'all') {
-      filtered = filtered.filter(resource => resource.type === typeFilter)
-    }
-
-    if (categoryFilter !== 'all') {
-      filtered = filtered.filter(resource => resource.category === categoryFilter)
-    }
-
-    if (difficultyFilter !== 'all') {
-      filtered = filtered.filter(resource => resource.difficulty === difficultyFilter)
+      filtered = filtered.filter(resource => resource.resourceType === typeFilter)
     }
 
     setFilteredResources(filtered)
-  }, [resources, searchTerm, typeFilter, categoryFilter, difficultyFilter, activeTab])
+  }, [resources, searchTerm, typeFilter, activeTab])
 
   const getTypeIcon = (type: string) => {
     switch (type) {
-      case 'document': return <FileText className="w-5 h-5 text-blue-600" />
-      case 'video': return <Video className="w-5 h-5 text-red-600" />
-      case 'image': return <Image className="w-5 h-5 text-green-600" />
-      case 'other': return <File className="w-5 h-5 text-purple-600" />
-      default: return <File className="w-5 h-5 text-gray-600" />
+      case 'PDF': return <FileText className="w-5 h-5 text-blue-600" />
+      case 'VIDEO': return <Video className="w-5 h-5 text-red-600" />
+      case 'IMAGE': return <Image className="w-5 h-5 text-green-600" />
+      default: return <File className="w-5 h-5 text-purple-600" />
     }
   }
 
   const getTypeLabel = (type: string) => {
-    const labels = {
-      document: '文档',
-      video: '视频',
-      image: '图片',
-      other: '其他'
+    const labels: Record<string, string> = {
+      PDF: '文档',
+      DOC: '文档',
+      PPT: '演示文稿',
+      VIDEO: '视频',
+      IMAGE: '图片',
+      ZIP: '压缩文件',
+      OTHER: '其他'
     }
-    return labels[type as keyof typeof labels] || type
+    return labels[type] || type
   }
 
-  const getDifficultyLabel = (difficulty: string) => {
-    const labels = {
-      beginner: '初级',
-      intermediate: '中级',
-      advanced: '高级'
-    }
-    return labels[difficulty as keyof typeof labels] || difficulty
-  }
-
-  const getDifficultyColor = (difficulty: string) => {
-    const colors = {
-      beginner: 'bg-green-100 text-green-800',
-      intermediate: 'bg-yellow-100 text-yellow-800',
-      advanced: 'bg-red-100 text-red-800'
-    }
-    return colors[difficulty as keyof typeof colors] || 'bg-gray-100 text-gray-800'
-  }
-
-  const handleUpload = () => {
-    const resource: Resource = {
-      id: Date.now().toString(),
-      title: newResource.title,
-      description: newResource.description,
-      type: newResource.type,
-      category: newResource.category,
-      difficulty: newResource.difficulty,
-      fileSize: '1.0 MB',
-      uploadDate: new Date().toISOString().split('T')[0],
-      uploadedBy: user?.name || '',
-      downloads: 0,
-      rating: 0,
-      tags: newResource.tags.split(',').map(tag => tag.trim()),
-      approved: user?.role === 'teacher' || user?.role === 'admin',
-      url: '/placeholder.pdf'
+  const handleUpload = async () => {
+    if (!newResource.file) {
+      toast.error('请选择要上传的文件')
+      return
     }
 
-    setResources([resource, ...resources])
-    setNewResource({
-      title: '',
-      description: '',
-      type: 'document',
-      category: '',
-      difficulty: 'beginner',
-      tags: ''
-    })
-    setShowUpload(false)
+    const formData = new FormData()
+    formData.append('userName', newResource.userName)
+    formData.append('description', newResource.description)
+    formData.append('fileName', newResource.fileName)
+    formData.append('resourceType', newResource.resourceType)
+
+    // 添加fileURL参数（文档要求）
+    const fileURL = URL.createObjectURL(newResource.file)
+    formData.append('fileURL', fileURL)
+
+    // 添加文件
+    formData.append('file', newResource.file)
+
+    try {
+      console.log("上传表单数据:", {
+        userName: newResource.userName,
+        description: newResource.description,
+        fileName: newResource.fileName,
+        resourceType: newResource.resourceType,
+        fileURL: fileURL
+      });
+
+      const response = await fetch(`${API_BASE_URL}/upload`, {
+        method: 'POST',
+        body: formData
+        // 注意：不要手动设置Content-Type，浏览器会自动设置multipart/form-data
+      })
+
+      const result = await response.text()
+      console.log("上传响应:", result);
+
+      if (response.ok) {
+        toast.success('资源上传成功')
+        fetchResources()
+        setNewResource({
+          fileName: '',
+          description: '',
+          resourceType: 'PDF',
+          userName: user?.name || '',
+          file: null
+        })
+        setShowUpload(false)
+      } else {
+        toast.error('上传失败: ' + result)
+      }
+    } catch (error) {
+      toast.error('上传失败: ' + (error as Error).message)
+    } finally {
+      // 清理临时URL
+      URL.revokeObjectURL(fileURL)
+    }
   }
 
-  const handleApprove = (id: string) => {
+  const handleDownload = async (fileName: string) => {
+    try {
+      // 获取资源详情
+      const resource = resources.find(r => r.fileName === fileName)
+      if (!resource) {
+        toast.error('找不到资源信息')
+        return
+      }
+
+      // 创建临时下载链接 - 先提供即时下载
+      const tempLink = document.createElement('a')
+      tempLink.href = resource.ossUrl
+      tempLink.download = fileName
+      document.body.appendChild(tempLink)
+      tempLink.click()
+      document.body.removeChild(tempLink)
+
+      toast.success(`开始下载: ${fileName}`)
+
+      // 异步调用下载API记录下载事件
+      try {
+        // 浏览器环境下无法指定具体路径，使用通用路径
+        const downloadPath = `/downloads/${fileName}`
+
+        const downloadResponse = await fetch(
+            `${API_BASE_URL}/download?fileName=${encodeURIComponent(fileName)}&localFilePath=${encodeURIComponent(downloadPath)}`
+        )
+
+        const result = await downloadResponse.text()
+        console.log("下载记录响应:", result)
+
+        if (!downloadResponse.ok) {
+          console.warn('下载记录失败: ' + result)
+        }
+      } catch (error) {
+        console.error('下载记录错误: ' + (error as Error).message)
+      }
+    } catch (error) {
+      toast.error('下载失败: ' + (error as Error).message)
+    }
+  }
+  const handleDelete = async (fileName: string) => {
+    if (!confirm(`确定要删除资源 "${fileName}" 吗？`)) return
+
+    try {
+      const response = await fetch(
+          `${API_BASE_URL}/delete?fileName=${encodeURIComponent(fileName)}`,
+          { method: 'DELETE' }
+      )
+
+      const result = await response.text()
+      console.log("删除响应:", result);
+
+      if (response.ok) {
+        toast.success('资源删除成功')
+        fetchResources()
+      } else {
+        toast.error('删除失败: ' + result)
+      }
+    } catch (error) {
+      toast.error('删除失败: ' + (error as Error).message)
+    }
+  }
+  const handleCombinedSearch = async () => {
+    setIsLoading(true)
+    try {
+      // 构建查询参数
+      const params = new URLSearchParams()
+      if (searchTerm) params.append('fileName', searchTerm)
+      if (typeFilter !== 'all') params.append('resourceType', typeFilter)
+      if (user?.name) params.append('userName', user.name)
+
+      const response = await fetch(
+          `${API_BASE_URL}/oss/check/combined?${params.toString()}`
+      )
+      const data = await response.json()
+      console.log("组合查询响应:", data);
+
+      if (data.code === 200) {
+        setFilteredResources(data.data)
+      } else {
+        toast.error('查询失败: ' + data.message)
+      }
+    } catch (error) {
+      toast.error('查询失败: ' + (error as Error).message)
+    } finally {
+      setIsLoading(false)
+    }
+  }
+  const handleApprove = (id: number) => {
     setResources(resources.map(r =>
         r.id === id ? {...r, approved: true} : r
     ))
+    toast.success('资源已批准')
   }
 
-  const handleReject = (id: string) => {
-    setResources(resources.filter(r => r.id !== id))
+  const handleReject = async (id: number, fileName: string) => {
+    if (confirm(`确定要拒绝资源 "${fileName}" 吗？`)) {
+      await handleDelete(fileName)
+    }
+  }
+
+  const fetchProjectResources = async () => {
+    setIsLoading(true)
+    try {
+      // 这里需要从项目中获取实际的项目名称
+      const projectName = "Java项目" // 实际项目中应从用户数据获取
+
+      const response = await fetch(
+          `${API_BASE_URL}/oss/check/search-by-project-title?keyword=${encodeURIComponent(projectName)}`,
+          {
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem('token')}`
+            }
+          }
+      )
+      const data = await response.json()
+      console.log("项目资源响应:", data);
+
+      if (data.code === 200) {
+        setFilteredResources(data.data)
+      } else {
+        toast.error('获取项目资源失败: ' + data.message)
+      }
+    } catch (error) {
+      toast.error('网络错误: ' + (error as Error).message)
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   if (!user) {
@@ -396,12 +384,12 @@ export default function ResourcesPage() {
                     </DialogHeader>
                     <div className="space-y-4">
                       <div>
-                        <Label htmlFor="title">资源标题</Label>
+                        <Label htmlFor="fileName">资源名称</Label>
                         <Input
-                            id="title"
-                            value={newResource.title}
-                            onChange={(e) => setNewResource({...newResource, title: e.target.value})}
-                            placeholder="输入资源标题"
+                            id="fileName"
+                            value={newResource.fileName}
+                            onChange={(e) => setNewResource({...newResource, fileName: e.target.value})}
+                            placeholder="输入资源名称"
                         />
                       </div>
                       <div>
@@ -415,57 +403,40 @@ export default function ResourcesPage() {
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         <div>
-                          <Label htmlFor="type">资源类型</Label>
-                          <Select value={newResource.type} onValueChange={(value: 'document' | 'video' | 'image' | 'other') => setNewResource({...newResource, type: value})}>
+                          <Label htmlFor="resourceType">资源类型</Label>
+                          <Select
+                              value={newResource.resourceType}
+                              onValueChange={(value) => setNewResource({...newResource, resourceType: value})}
+                          >
                             <SelectTrigger>
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="document">文档</SelectItem>
-                              <SelectItem value="video">视频</SelectItem>
-                              <SelectItem value="image">图片</SelectItem>
-                              <SelectItem value="other">其他</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div>
-                          <Label htmlFor="difficulty">难度等级</Label>
-                          <Select value={newResource.difficulty} onValueChange={(value: 'beginner' | 'intermediate' | 'advanced') => setNewResource({...newResource, difficulty: value})}>
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="beginner">初级</SelectItem>
-                              <SelectItem value="intermediate">中级</SelectItem>
-                              <SelectItem value="advanced">高级</SelectItem>
+                              <SelectItem value="PDF">文档</SelectItem>
+                              <SelectItem value="VIDEO">视频</SelectItem>
+                              <SelectItem value="IMAGE">图片</SelectItem>
+                              <SelectItem value="DOC">Word文档</SelectItem>
+                              <SelectItem value="PPT">演示文稿</SelectItem>
+                              <SelectItem value="ZIP">压缩文件</SelectItem>
+                              <SelectItem value="OTHER">其他</SelectItem>
                             </SelectContent>
                           </Select>
                         </div>
                       </div>
                       <div>
-                        <Label htmlFor="category">分类</Label>
+                        <Label htmlFor="file">选择文件</Label>
                         <Input
-                            id="category"
-                            value={newResource.category}
-                            onChange={(e) => setNewResource({...newResource, category: e.target.value})}
-                            placeholder="输入资源分类"
+                            id="file"
+                            type="file"
+                            onChange={(e) =>
+                                setNewResource({
+                                  ...newResource,
+                                  file: e.target.files?.[0] || null
+                                })
+                            }
                         />
                       </div>
-                      <div>
-                        <Label htmlFor="tags">标签</Label>
-                        <Input
-                            id="tags"
-                            value={newResource.tags}
-                            onChange={(e) => setNewResource({...newResource, tags: e.target.value})}
-                            placeholder="输入标签，用逗号分隔"
-                        />
-                      </div>
-                      <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                        <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
-                        <p className="text-sm text-gray-600">点击或拖拽文件到此处上传</p>
-                        <p className="text-xs text-gray-500 mt-1">支持 PDF, DOC, PPT, MP4, JPG, PNG 等格式</p>
-                      </div>
-                      <Button onClick={handleUpload} className="w-full">
+                      <Button onClick={handleUpload} className="w-full" disabled={!newResource.file}>
                         上传资源
                       </Button>
                     </div>
@@ -477,7 +448,7 @@ export default function ResourcesPage() {
           {/* 筛选器 */}
           <Card className="mb-6">
             <CardContent className="pt-6">
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="relative">
                   <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                   <Input
@@ -494,253 +465,233 @@ export default function ResourcesPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">全部类型</SelectItem>
-                    <SelectItem value="document">文档</SelectItem>
-                    <SelectItem value="video">视频</SelectItem>
-                    <SelectItem value="image">图片</SelectItem>
-                    <SelectItem value="other">其他</SelectItem>
+                    <SelectItem value="PDF">文档</SelectItem>
+                    <SelectItem value="VIDEO">视频</SelectItem>
+                    <SelectItem value="IMAGE">图片</SelectItem>
+                    <SelectItem value="DOC">Word</SelectItem>
+                    <SelectItem value="PPT">演示文稿</SelectItem>
+                    <SelectItem value="ZIP">压缩文件</SelectItem>
                   </SelectContent>
                 </Select>
 
-                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="资源分类" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">全部分类</SelectItem>
-                    <SelectItem value="前端开发">前端开发</SelectItem>
-                    <SelectItem value="编程基础">编程基础</SelectItem>
-                    <SelectItem value="数据库">数据库</SelectItem>
-                    <SelectItem value="UI设计">UI设计</SelectItem>
-                    <SelectItem value="数据分析">数据分析</SelectItem>
-                    <SelectItem value="人工智能">人工智能</SelectItem>
-                    <SelectItem value="后端开发">后端开发</SelectItem>
-                    <SelectItem value="计算机科学">计算机科学</SelectItem>
-                    <SelectItem value="运维">运维</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                <Select value={difficultyFilter} onValueChange={setDifficultyFilter}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="难度等级" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">全部难度</SelectItem>
-                    <SelectItem value="beginner">初级</SelectItem>
-                    <SelectItem value="intermediate">中级</SelectItem>
-                    <SelectItem value="advanced">高级</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Button
+                    variant="outline"
+                    onClick={fetchProjectResources}
+                >
+                  <Filter className="w-4 h-4 mr-2" />
+                  项目相关资源
+                </Button>
 
                 <Button variant="outline">
                   <Filter className="w-4 h-4 mr-2" />
                   高级筛选
                 </Button>
+                <Button
+                    variant="outline"
+                    onClick={handleCombinedSearch}
+                >
+                  <Filter className="w-4 h-4 mr-2" />
+                  组合查询
+                </Button>
               </div>
             </CardContent>
           </Card>
 
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-            <TabsList>
-              <TabsTrigger value="all">全部资源</TabsTrigger>
-              <TabsTrigger value="recent">最近上传</TabsTrigger>
-              <TabsTrigger value="popular">热门下载</TabsTrigger>
-              <TabsTrigger value="favorites">我的收藏</TabsTrigger>
-              {(user.role === 'teacher' || user.role === 'admin') && (
-                  <TabsTrigger value="pending">待审核</TabsTrigger>
-              )}
-            </TabsList>
-
-            <TabsContent value="all" className="pt-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredResources.map((resource) => (
-                    <Card key={resource.id} className="hover:shadow-lg transition-shadow">
-                      <CardHeader className="pb-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center">
-                            {getTypeIcon(resource.type)}
-                            <CardTitle className="text-lg ml-2">{resource.title}</CardTitle>
-                          </div>
-                          <span className={`px-2 py-1 rounded-full text-xs ${getDifficultyColor(resource.difficulty)}`}>
-                        {getDifficultyLabel(resource.difficulty)}
-                      </span>
-                        </div>
-                        <CardDescription className="line-clamp-2 mt-2">{resource.description}</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="flex flex-wrap gap-2 mb-4">
-                          {resource.tags.map((tag, index) => (
-                              <span key={index} className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
-                          {tag}
-                        </span>
-                          ))}
-                        </div>
-                        <div className="flex justify-between items-center text-sm text-gray-600">
-                          <div className="flex items-center">
-                            <span className="mr-2">上传者: {resource.uploadedBy}</span>
-                            <span>|</span>
-                            <span className="ml-2">{resource.uploadDate}</span>
-                          </div>
-                          <div className="flex items-center">
-                            <Download className="w-4 h-4 mr-1" />
-                            <span>{resource.downloads}</span>
-                          </div>
-                        </div>
-                        <div className="mt-4 flex justify-between items-center">
-                          <div className="flex items-center">
-                            <Star className="w-4 h-4 text-yellow-500 fill-yellow-500 mr-1" />
-                            <span className="font-medium">{resource.rating}</span>
-                          </div>
-                          <Button size="sm">
-                            <Download className="w-4 h-4 mr-2" />
-                            下载资源
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                ))}
+          {isLoading ? (
+              <div className="flex justify-center items-center h-64">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+                <p className="ml-4 text-gray-600">加载资源中...</p>
               </div>
-            </TabsContent>
-
-            <TabsContent value="recent" className="pt-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredResources.map((resource) => (
-                    <Card key={resource.id} className="hover:shadow-lg transition-shadow">
-                      <CardHeader className="pb-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center">
-                            {getTypeIcon(resource.type)}
-                            <CardTitle className="text-lg ml-2">{resource.title}</CardTitle>
-                          </div>
-                          <span className="flex items-center text-gray-500 text-sm">
-                        <Clock className="w-4 h-4 mr-1" />
-                            {resource.uploadDate}
-                      </span>
-                        </div>
-                        <CardDescription className="line-clamp-2 mt-2">{resource.description}</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="flex flex-wrap gap-2 mb-4">
-                          {resource.tags.slice(0, 3).map((tag, index) => (
-                              <span key={index} className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
-                          {tag}
-                        </span>
-                          ))}
-                        </div>
-                        <div className="flex justify-between items-center mt-4">
-                          <Button size="sm" variant="outline">
-                            <ThumbsUp className="w-4 h-4 mr-2" />
-                            收藏
-                          </Button>
-                          <Button size="sm">
-                            <Download className="w-4 h-4 mr-2" />
-                            下载
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                ))}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="popular" className="pt-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {filteredResources.map((resource) => (
-                    <Card key={resource.id} className="hover:shadow-lg transition-shadow">
-                      <CardHeader className="pb-3">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center">
-                            {getTypeIcon(resource.type)}
-                            <CardTitle className="text-lg ml-2">{resource.title}</CardTitle>
-                          </div>
-                          <span className="flex items-center text-gray-500 text-sm">
-                        <Download className="w-4 h-4 mr-1" />
-                            {resource.downloads}
-                      </span>
-                        </div>
-                        <CardDescription className="line-clamp-2 mt-2">{resource.description}</CardDescription>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="flex items-center justify-between mb-4">
-                      <span className={`px-2 py-1 rounded-full text-xs ${getDifficultyColor(resource.difficulty)}`}>
-                        {getDifficultyLabel(resource.difficulty)}
-                      </span>
-                          <div className="flex items-center">
-                            <Star className="w-4 h-4 text-yellow-500 fill-yellow-500 mr-1" />
-                            <span className="font-medium">{resource.rating}</span>
-                          </div>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span className="text-sm text-gray-600">{resource.uploadedBy}</span>
-                          <Button size="sm">
-                            <Download className="w-4 h-4 mr-2" />
-                            下载
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
-                ))}
-              </div>
-            </TabsContent>
-
-            <TabsContent value="favorites" className="pt-4">
-              <div className="bg-gray-100 rounded-lg p-12 text-center">
-                <Star className="w-12 h-12 text-yellow-400 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-gray-700">暂无收藏资源</h3>
-                <p className="text-gray-500 mt-2">您可以将喜欢的资源添加到收藏夹</p>
-              </div>
-            </TabsContent>
-
-            {(user.role === 'teacher' || user.role === 'admin') && (
-                <TabsContent value="pending" className="pt-4">
-                  {filteredResources.length === 0 ? (
-                      <div className="bg-gray-100 rounded-lg p-12 text-center">
-                        <Check className="w-12 h-12 text-green-500 mx-auto mb-4" />
-                        <h3 className="text-xl font-semibold text-gray-700">暂无待审核资源</h3>
-                        <p className="text-gray-500 mt-2">所有资源已审核完成</p>
-                      </div>
-                  ) : (
-                      <div className="space-y-6">
-                        {filteredResources.map((resource) => (
-                            <Card key={resource.id} className="border-l-4 border-yellow-500">
-                              <CardContent className="pt-6">
-                                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                  <div>
-                                    <div className="flex items-center">
-                                      {getTypeIcon(resource.type)}
-                                      <h3 className="text-lg font-semibold ml-2">{resource.title}</h3>
-                                    </div>
-                                    <p className="text-sm text-gray-600 mt-1">{resource.description}</p>
-                                    <div className="flex flex-wrap gap-2 mt-3">
-                              <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
-                                {resource.category}
-                              </span>
-                                      <span className={`px-2 py-1 rounded-full text-xs ${getDifficultyColor(resource.difficulty)}`}>
-                                {getDifficultyLabel(resource.difficulty)}
-                              </span>
-                                      <span className="text-xs text-gray-500">
-                                上传者: {resource.uploadedBy}
-                              </span>
-                                    </div>
-                                  </div>
-                                  <div className="flex gap-2">
-                                    <Button variant="outline" onClick={() => handleReject(resource.id)}>
-                                      <X className="w-4 h-4 mr-2" />
-                                      拒绝
-                                    </Button>
-                                    <Button onClick={() => handleApprove(resource.id)}>
-                                      <Check className="w-4 h-4 mr-2" />
-                                      通过
-                                    </Button>
-                                  </div>
-                                </div>
-                              </CardContent>
-                            </Card>
-                        ))}
-                      </div>
+          ) : (
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+                <TabsList>
+                  <TabsTrigger value="all">全部资源</TabsTrigger>
+                  <TabsTrigger value="recent">最近上传</TabsTrigger>
+                  <TabsTrigger value="popular">热门下载</TabsTrigger>
+                  <TabsTrigger value="favorites">我的收藏</TabsTrigger>
+                  {(user.role === 'teacher' || user.role === 'admin') && (
+                      <TabsTrigger value="pending">待审核</TabsTrigger>
                   )}
+                </TabsList>
+
+                <TabsContent value="all" className="pt-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {filteredResources.map((resource) => (
+                        <Card key={resource.id} className="hover:shadow-lg transition-shadow">
+                          <CardHeader className="pb-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center">
+                                {getTypeIcon(resource.resourceType)}
+                                <CardTitle className="text-lg ml-2 line-clamp-1">{resource.fileName}</CardTitle>
+                              </div>
+                            </div>
+                            <CardDescription className="line-clamp-2 mt-2">{resource.description}</CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="flex justify-between items-center text-sm text-gray-600 mb-4">
+                              <div className="flex items-center">
+                                <span className="mr-2">上传者: {resource.userName}</span>
+                                <span>|</span>
+                                <span className="ml-2">{new Date(resource.createdAt).toLocaleDateString()}</span>
+                              </div>
+                              <div className="flex items-center">
+                                <span>{resource.metadata?.size || '未知大小'}</span>
+                              </div>
+                            </div>
+                            <div className="mt-4 flex justify-between items-center">
+                              <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleDelete(resource.fileName)}
+                              >
+                                <X className="w-4 h-4 mr-2" />
+                                删除
+                              </Button>
+                              <Button
+                                  size="sm"
+                                  onClick={() => handleDownload(resource.fileName)}
+                              >
+                                <Download className="w-4 h-4 mr-2" />
+                                下载资源
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                    ))}
+                  </div>
                 </TabsContent>
-            )}
-          </Tabs>
+
+                <TabsContent value="recent" className="pt-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {filteredResources.map((resource) => (
+                        <Card key={resource.id} className="hover:shadow-lg transition-shadow">
+                          <CardHeader className="pb-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center">
+                                {getTypeIcon(resource.resourceType)}
+                                <CardTitle className="text-lg ml-2 line-clamp-1">{resource.fileName}</CardTitle>
+                              </div>
+                              <span className="flex items-center text-gray-500 text-sm">
+                          <Clock className="w-4 h-4 mr-1" />
+                                {new Date(resource.createdAt).toLocaleDateString()}
+                        </span>
+                            </div>
+                            <CardDescription className="line-clamp-2 mt-2">{resource.description}</CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="flex justify-between items-center mt-4">
+                              <Button size="sm" variant="outline">
+                                <ThumbsUp className="w-4 h-4 mr-2" />
+                                收藏
+                              </Button>
+                              <Button
+                                  size="sm"
+                                  onClick={() => handleDownload(resource.fileName)}
+                              >
+                                <Download className="w-4 h-4 mr-2" />
+                                下载
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                    ))}
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="popular" className="pt-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    {filteredResources.map((resource) => (
+                        <Card key={resource.id} className="hover:shadow-lg transition-shadow">
+                          <CardHeader className="pb-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center">
+                                {getTypeIcon(resource.resourceType)}
+                                <CardTitle className="text-lg ml-2 line-clamp-1">{resource.fileName}</CardTitle>
+                              </div>
+                              <span className="flex items-center text-gray-500 text-sm">
+                          <Download className="w-4 h-4 mr-1" />
+                                {Math.floor(Math.random() * 100) + 50} {/* 模拟下载量 */}
+                        </span>
+                            </div>
+                            <CardDescription className="line-clamp-2 mt-2">{resource.description}</CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="flex justify-between items-center">
+                              <span className="text-sm text-gray-600">{resource.userName}</span>
+                              <Button
+                                  size="sm"
+                                  onClick={() => handleDownload(resource.fileName)}
+                              >
+                                <Download className="w-4 h-4 mr-2" />
+                                下载
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                    ))}
+                  </div>
+                </TabsContent>
+
+                <TabsContent value="favorites" className="pt-4">
+                  <div className="bg-gray-100 rounded-lg p-12 text-center">
+                    <Star className="w-12 h-12 text-yellow-400 mx-auto mb-4" />
+                    <h3 className="text-xl font-semibold text-gray-700">暂无收藏资源</h3>
+                    <p className="text-gray-500 mt-2">您可以将喜欢的资源添加到收藏夹</p>
+                  </div>
+                </TabsContent>
+
+                {(user.role === 'teacher' || user.role === 'admin') && (
+                    <TabsContent value="pending" className="pt-4">
+                      {filteredResources.length === 0 ? (
+                          <div className="bg-gray-100 rounded-lg p-12 text-center">
+                            <Check className="w-12 h-12 text-green-500 mx-auto mb-4" />
+                            <h3 className="text-xl font-semibold text-gray-700">暂无待审核资源</h3>
+                            <p className="text-gray-500 mt-2">所有资源已审核完成</p>
+                          </div>
+                      ) : (
+                          <div className="space-y-6">
+                            {filteredResources.map((resource) => (
+                                <Card key={resource.id} className="border-l-4 border-yellow-500">
+                                  <CardContent className="pt-6">
+                                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                      <div>
+                                        <div className="flex items-center">
+                                          {getTypeIcon(resource.resourceType)}
+                                          <h3 className="text-lg font-semibold ml-2">{resource.fileName}</h3>
+                                        </div>
+                                        <p className="text-sm text-gray-600 mt-1">{resource.description}</p>
+                                        <div className="flex flex-wrap gap-2 mt-3">
+                                <span className="bg-blue-100 text-blue-800 text-xs px-2 py-1 rounded">
+                                  {getTypeLabel(resource.resourceType)}
+                                </span>
+                                          <span className="text-xs text-gray-500">
+                                  上传者: {resource.userName}
+                                </span>
+                                        </div>
+                                      </div>
+                                      <div className="flex gap-2">
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => handleReject(resource.id, resource.fileName)}
+                                        >
+                                          <X className="w-4 h-4 mr-2" />
+                                          拒绝
+                                        </Button>
+                                        <Button onClick={() => handleApprove(resource.id)}>
+                                          <Check className="w-4 h-4 mr-2" />
+                                          通过
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                            ))}
+                          </div>
+                      )}
+                    </TabsContent>
+                )}
+              </Tabs>
+          )}
         </div>
       </div>
   )
