@@ -1,6 +1,8 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import type React from "react"
+
+import { useState, useEffect, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { useQuery, useMutation, QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -12,28 +14,23 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   FlaskConical,
-  Search,
-  Play,
-  Pause,
-  RotateCcw,
   Download,
   Clock,
   Star,
-  BookOpen,
   Microscope,
   Atom,
   Beaker,
   Plus,
   User,
   Send,
-  Edit,
   Trash,
-  List,
-  Library,
   FileText,
   FileCheck,
   FileBarChart,
   Paperclip,
+  AlertCircle,
+  Award,
+  CheckCircle,
 } from "lucide-react"
 import {
   Dialog,
@@ -42,19 +39,25 @@ import {
   DialogTitle,
   DialogTrigger,
   DialogFooter,
-  DialogClose,
   DialogDescription,
 } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Pagination, PaginationContent, PaginationItem, PaginationLink, PaginationNext, PaginationPrevious } from "@/components/ui/pagination"
-import Link from "next/link";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination"
+import Link from "next/link"
 
 // 创建 QueryClient 实例
 const queryClient = new QueryClient()
 
-interface User {
+interface UserType {
   id: string
   name: string
   email: string
@@ -83,6 +86,7 @@ interface Assignment {
   className: string
   classId: string
   experimentId: string
+  experimentTitle?: string // 添加实验标题
   startTime: string
   endTime: string
   requirements: string
@@ -114,49 +118,70 @@ interface Attachment {
 }
 
 interface ClassDTO {
-  id: number;
-  name: string;
+  id: number
+  name: string
 }
 
 interface UserInfoDTO {
-  id: number;
-  name: string;
+  id: number
+  name: string
+}
+
+interface TaskReport {
+  id: string
+  studentId: string
+  studentName: string
+  taskId: string
+  taskName: string
+  experimentTitle: string
+  submittedAt?: string
+  content: string
+  autoContent?: string
+  grade?: number
+  feedback?: string
+  status: "未提交" | "已提交" | "已批改"
+  attachments?: Attachment[]
+}
+
+interface GradingStats {
+  totalReports: number
+  submittedReports: number
+  gradedReports: number
+  averageGrade: number
 }
 
 // API基础URL
-const API_BASE_URL = "http://localhost:8080/api/v1/teaching";
-const RESOURCE_BASE_URL = "http://localhost:8080/api/v1/resources";
+const API_BASE_URL = "http://localhost:8080/api/v1/teaching"
+const RESOURCE_BASE_URL = "http://localhost:8080"
 
 const fetchFromApi = async (url: string, options?: RequestInit) => {
-  const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  const token = typeof window !== "undefined" ? localStorage.getItem("accessToken") : null
   if (!token) {
-    throw new Error('用户未登录或Token已失效');
+    throw new Error("用户未登录或Token已失效")
   }
   const headers = {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${token}`,
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
     ...options?.headers,
-  };
-  const response = await fetch(url, { ...options, headers });
-  const responseData = await response.json();
+  }
+  const response = await fetch(url, { ...options, headers })
+  const responseData = await response.json()
 
   if (!response.ok) {
-    throw new Error(responseData.message || `请求失败: ${response.status}`);
+    throw new Error(responseData.message || `请求失败: ${response.status}`)
   }
-  return responseData.data || null;
-};
+  return responseData.data || null
+}
 
 // 数据规范化辅助函数
 const normalizeExperiment = (record: any): Experiment => {
-  let creatorName = "系统"; // 默认值
+  let creatorName = "系统" // 默认值
 
   if (record && record.creator) {
-    if (typeof record.creator === 'object' && record.creator !== null) {
-      // 如果是对象, 优先使用 realName, 其次是 username
-      creatorName = record.creator.realName || record.creator.username || "未知作者";
+    if (typeof record.creator === "object" && record.creator !== null) {
+      creatorName = record.creator.realName || record.creator.username || "未知作者"
     } else {
-      // 如果不是对象 (例如直接是字符串或数字), 转换为字符串
-      creatorName = String(record.creator);
+      creatorName = String(record.creator)
     }
   }
 
@@ -170,206 +195,307 @@ const normalizeExperiment = (record: any): Experiment => {
     completed: record.completed || false,
     progress: record.progress || 0,
     thumbnail: record.thumbnailUrl || "",
-    creator: creatorName, // 使用我们安全处理过的字符串
+    creator: creatorName,
     isSystem: record.isSystem ?? true,
     assignments: record.assignments || [],
-    simulationUrl: record.simulationUrl || "" // 仿真环境URL
-  };
-};
+    simulationUrl: record.simulationUrl || "",
+  }
+}
+
+const normalizeAssignment = (task: any): Assignment => {
+  return {
+    id: String(task.id),
+    taskName: task.taskName || "未命名任务",
+    className: task.className || "未知班级",
+    classId: String(task.classId || ""),
+    experimentId: String(task.experimentId || task.experiment?.id || ""),
+    experimentTitle: task.experiment?.title || "未知实验",
+    startTime: task.startTime || new Date().toISOString(),
+    endTime: task.endTime || new Date().toISOString(),
+    requirements: task.taskRequirements || task.requirements || "",
+    status: mapTaskStatus(task.status),
+    assignedTo: task.assignedTo || [],
+    submittedAt: task.submittedAt,
+    grade: task.grade,
+    reports: task.reports || [],
+  }
+}
+
+const mapTaskStatus = (status: string): "未开始" | "进行中" | "已提交" | "已批改" => {
+  switch (status?.toUpperCase()) {
+    case "PENDING":
+      return "未开始"
+    case "IN_PROGRESS":
+      return "进行中"
+    case "SUBMITTED":
+      return "已提交"
+    case "GRADED":
+      return "已批改"
+    default:
+      return "未开始"
+  }
+}
 
 // 获取token的函数
 const getAuthToken = () => {
-  return localStorage.getItem("accessToken");
-};
+  return localStorage.getItem("accessToken")
+}
 
 // 获取实验列表（带分页）
-const fetchExperiments = async (page: number = 0, size: number = 10): Promise<{ experiments: Experiment[], totalPages: number }> => {
-  const token = getAuthToken();
-  if (!token) throw new Error('用户未登录');
+const fetchExperiments = async (page = 0, size = 10): Promise<{ experiments: Experiment[]; totalPages: number }> => {
+  const token = getAuthToken()
+  if (!token) throw new Error("用户未登录")
 
   const response = await fetch(`${API_BASE_URL}/experiments?page=${page}&size=${size}`, {
     headers: {
-      'Authorization': `Bearer ${token}`
-    }
-  });
+      Authorization: `Bearer ${token}`,
+    },
+  })
 
-  if (!response.ok) throw new Error('获取实验列表失败');
+  if (!response.ok) throw new Error("获取实验列表失败")
 
-  const responseData = await response.json();
-  const data = responseData?.data || {};
+  const responseData = await response.json()
+  const data = responseData?.data || {}
 
-  const records = data?.records || [];
-  const totalPages = data?.pages || 0;
+  const records = data?.content || data?.records || []
+  const totalPages = data?.totalPages || data?.pages || 0
 
   return {
     experiments: records.map((record: any) => normalizeExperiment(record)),
-    totalPages
-  };
-};
+    totalPages,
+  }
+}
 
 // 获取当前用户信息
-const fetchUser = async (): Promise<User> => {
-  const token = getAuthToken();
-  if (!token) throw new Error('用户未登录');
+const fetchUser = async (): Promise<UserType> => {
+  const token = getAuthToken()
+  if (!token) throw new Error("用户未登录")
 
   const response = await fetch(`http://localhost:8080/api/v1/me/profile`, {
     headers: {
-      'Authorization': `Bearer ${token}`
-    }
-  });
-  if (!response.ok) throw new Error('获取用户信息失败');
-  const backendUser = await response.json();
+      Authorization: `Bearer ${token}`,
+    },
+  })
+  if (!response.ok) throw new Error("获取用户信息失败")
+  const backendUser = await response.json()
   const processRole = (roles: string[] = []): "student" | "teacher" | "admin" => {
-    const firstRole = (roles[0] || "").toUpperCase();
-    if (firstRole === "ROLE_STUDENT") return "student";
-    if (firstRole === "ROLE_TEACHER") return "teacher";
-    if (firstRole === "ROLE_ADMIN") return "admin";
-    return "student";
-  };
+    const firstRole = (roles[0] || "").toUpperCase()
+    if (firstRole === "ROLE_STUDENT") return "student"
+    if (firstRole === "ROLE_TEACHER") return "teacher"
+    if (firstRole === "ROLE_ADMIN") return "admin"
+    return "student"
+  }
   return {
     id: String(backendUser.id),
     name: backendUser.realName || backendUser.username || "未命名用户",
     email: backendUser.email || "",
     role: processRole(backendUser.roles),
-  };
-};
+  }
+}
 
-// 创建新实验（带文件上传）
-const createExperiment = async (newExperiment: any, files: { simulationPackage?: File, thumbnail?: File }): Promise<Experiment> => {
-  const token = getAuthToken();
-  if (!token) throw new Error('用户未登录');
+// 获取实验详情
+const getExperimentById = async (id: string): Promise<Experiment> => {
+  const token = getAuthToken()
+  if (!token) throw new Error("用户未登录")
+
+  const response = await fetch(`${API_BASE_URL}/experiments/${id}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  if (!response.ok) throw new Error("获取实验详情失败")
+
+  const responseData = await response.json()
+  const rawData = responseData?.data
+
+  if (!rawData) {
+    throw new Error(`无法找到ID为 ${id} 的实验`)
+  }
+  return normalizeExperiment(rawData)
+}
+
+// 创建新实验
+const createExperiment = async (
+    newExperiment: any,
+    files: { simulationPackage?: File; thumbnail?: File },
+): Promise<Experiment> => {
+  const token = getAuthToken()
+  if (!token) throw new Error("用户未登录")
 
   // 首先上传文件
-  let simulationPackageId, thumbnailId;
+  let simulationPackageId, thumbnailId
 
   if (files.simulationPackage) {
-    const simFormData = new FormData();
-    simFormData.append('file', files.simulationPackage);
-    simFormData.append('type', 'SIMULATION_PACKAGE');
+    const simFormData = new FormData()
+    simFormData.append("file", files.simulationPackage)
+    simFormData.append("type", "SIMULATION_PACKAGE")
 
     const simResponse = await fetch(`${RESOURCE_BASE_URL}/upload`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Authorization': `Bearer ${token}`
+        Authorization: `Bearer ${token}`,
       },
-      body: simFormData
-    });
+      body: simFormData,
+    })
 
-    if (!simResponse.ok) throw new Error('上传仿真包失败');
-    const simData = await simResponse.json();
-    simulationPackageId = simData.data.id;
+    if (!simResponse.ok) throw new Error("上传仿真包失败")
+    const simData = await simResponse.json()
+    simulationPackageId = simData.data.id
   }
 
   if (files.thumbnail) {
-    const thumbFormData = new FormData();
-    thumbFormData.append('file', files.thumbnail);
-    thumbFormData.append('type', 'IMAGE');
+    const thumbFormData = new FormData()
+    thumbFormData.append("file", files.thumbnail)
+    thumbFormData.append("type", "IMAGE")
 
     const thumbResponse = await fetch(`${RESOURCE_BASE_URL}/upload`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Authorization': `Bearer ${token}`
+        Authorization: `Bearer ${token}`,
       },
-      body: thumbFormData
-    });
+      body: thumbFormData,
+    })
 
-    if (!thumbResponse.ok) throw new Error('上传封面图失败');
-    const thumbData = await thumbResponse.json();
-    thumbnailId = thumbData.data.id;
+    if (!thumbResponse.ok) throw new Error("上传封面图失败")
+    const thumbData = await thumbResponse.json()
+    thumbnailId = thumbData.data.id
   }
 
   // 创建实验
   const response = await fetch(`${API_BASE_URL}/experiments`, {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({
-      ...newExperiment,
+      title: newExperiment.title,
+      description: newExperiment.description,
+      subject: newExperiment.category,
+      difficulty: newExperiment.difficulty,
+      duration: newExperiment.duration,
       simulationPackageId,
-      thumbnailId
-    })
-  });
+      thumbnailId,
+    }),
+  })
 
-  if (!response.ok) throw new Error('创建实验失败');
-  return response.json();
-};
+  if (!response.ok) throw new Error("创建实验失败")
+  const responseData = await response.json()
+  return normalizeExperiment(responseData.data)
+}
 
 // 指派实验任务
 const publishAssignment = async (assignmentData: any): Promise<Assignment> => {
-  const token = getAuthToken();
-  if (!token) throw new Error('用户未登录');
+  const token = getAuthToken()
+  if (!token) throw new Error("用户未登录")
 
   const response = await fetch(`${API_BASE_URL}/experiment-tasks/assign`, {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
     },
-    body: JSON.stringify(assignmentData)
-  });
-  if (!response.ok) throw new Error('发布任务失败');
-  return response.json();
-};
+    body: JSON.stringify({
+      experimentId: Number(assignmentData.experimentId),
+      classId: Number(assignmentData.classId),
+      taskName: assignmentData.taskName,
+      taskRequirements: assignmentData.requirements,
+      startTime: assignmentData.startTime,
+      endTime: assignmentData.endTime,
+      studentIds: assignmentData.studentIds.map((id: string) => Number(id)),
+    }),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json()
+    throw new Error(errorData.message || "发布任务失败")
+  }
+
+  const responseData = await response.json()
+  return normalizeAssignment(responseData.data)
+}
 
 // 提交实验报告（带附件）
 const submitReport = async (taskId: string, reportData: any, attachments: File[]): Promise<Report> => {
-  const token = getAuthToken();
-  if (!token) throw new Error('用户未登录');
+  const token = getAuthToken()
+  if (!token) throw new Error("用户未登录")
 
   // 1. 上传附件
-  const attachmentIds: string[] = [];
+  const attachmentIds: string[] = []
 
   for (const file of attachments) {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('type', 'REPORT_ATTACHMENT');
+    const formData = new FormData()
+    formData.append("file", file)
+    formData.append("type", "REPORT_ATTACHMENT")
 
     const response = await fetch(`${RESOURCE_BASE_URL}/upload`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Authorization': `Bearer ${token}`
+        Authorization: `Bearer ${token}`,
       },
-      body: formData
-    });
+      body: formData,
+    })
 
-    if (!response.ok) throw new Error('上传附件失败');
-    const data = await response.json();
-    attachmentIds.push(data.data.id);
+    if (!response.ok) throw new Error("上传附件失败")
+    const data = await response.json()
+    attachmentIds.push(data.data.id)
   }
 
   // 2. 提交报告
   const reportResponse = await fetch(`${API_BASE_URL}/tasks/${taskId}/my-report`, {
-    method: 'PUT',
+    method: "PUT",
     headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify({
       manualContent: reportData.content,
       isSubmitted: true,
-      attachmentIds
-    })
-  });
+      attachmentIds,
+    }),
+  })
 
-  if (!reportResponse.ok) throw new Error('提交报告失败');
-  return reportResponse.json();
-};
+  if (!reportResponse.ok) throw new Error("提交报告失败")
+  return reportResponse.json()
+}
+
+// 获取我的任务列表（学生）
+const fetchMyTasks = async (status?: string): Promise<Assignment[]> => {
+  const token = getAuthToken()
+  if (!token) throw new Error("用户未登录")
+
+  const params = new URLSearchParams()
+  if (status) params.append("status", status)
+
+  const response = await fetch(`${API_BASE_URL}/experiment-tasks/my-tasks?${params.toString()}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  if (!response.ok) throw new Error("获取任务列表失败")
+
+  const responseData = await response.json()
+  const data = responseData?.data || {}
+  const tasks = data?.content || data?.records || []
+
+  return Array.isArray(tasks) ? tasks.map((task: any) => normalizeAssignment(task)) : []
+}
 
 // 获取我的实验报告（包含自动生成内容）
 const getMyReport = async (taskId: string): Promise<Report> => {
-  const token = getAuthToken();
-  if (!token) throw new Error('用户未登录');
+  const token = getAuthToken()
+  if (!token) throw new Error("用户未登录")
 
   const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/my-report`, {
     headers: {
-      'Authorization': `Bearer ${token}`
-    }
-  });
+      Authorization: `Bearer ${token}`,
+    },
+  })
 
-  if (!response.ok) throw new Error('获取实验报告失败');
-  const data = await response.json();
+  if (!response.ok) throw new Error("获取实验报告失败")
+  const data = await response.json()
 
   return {
     id: data.id,
@@ -381,28 +507,29 @@ const getMyReport = async (taskId: string): Promise<Report> => {
     grade: data.grade,
     feedback: data.feedback,
     status: data.status,
-    attachments: data.attachments?.map((a: any) => ({
-      id: a.id,
-      name: a.name,
-      url: a.url,
-      type: a.type
-    })) || []
-  };
-};
+    attachments:
+        data.attachments?.map((a: any) => ({
+          id: a.id,
+          name: a.name,
+          url: a.url,
+          type: a.type,
+        })) || [],
+  }
+}
 
 // 获取报告详情
 const getReportById = async (reportId: string): Promise<Report> => {
-  const token = getAuthToken();
-  if (!token) throw new Error('用户未登录');
+  const token = getAuthToken()
+  if (!token) throw new Error("用户未登录")
 
   const response = await fetch(`${API_BASE_URL}/reports/${reportId}`, {
     headers: {
-      'Authorization': `Bearer ${token}`
-    }
-  });
+      Authorization: `Bearer ${token}`,
+    },
+  })
 
-  if (!response.ok) throw new Error('获取报告失败');
-  const data = await response.json();
+  if (!response.ok) throw new Error("获取报告失败")
+  const data = await response.json()
 
   return {
     id: data.id,
@@ -414,30 +541,131 @@ const getReportById = async (reportId: string): Promise<Report> => {
     grade: data.grade,
     feedback: data.feedback,
     status: data.status,
-    attachments: data.attachments?.map((a: any) => ({
-      id: a.id,
-      name: a.name,
-      url: a.url,
-      type: a.type
-    })) || []
-  };
-};
+    attachments:
+        data.attachments?.map((a: any) => ({
+          id: a.id,
+          name: a.name,
+          url: a.url,
+          type: a.type,
+        })) || [],
+  }
+}
+
+// 获取教师发布的任务
+const fetchTeacherTasks = async (classId?: string, experimentId?: string): Promise<Assignment[]> => {
+  const token = getAuthToken()
+  if (!token) throw new Error("用户未登录")
+
+  const params = new URLSearchParams()
+  if (classId) params.append("classId", classId)
+  if (experimentId) params.append("experimentId", experimentId)
+
+  const response = await fetch(`${API_BASE_URL}/experiment-tasks/teacher-tasks?${params.toString()}`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  if (!response.ok) throw new Error("获取教师任务失败")
+
+  const responseData = await response.json()
+  const data = responseData?.data || {}
+  const tasks = data?.content || data?.records || []
+
+  return Array.isArray(tasks) ? tasks.map((task: any) => normalizeAssignment(task)) : []
+}
+
 // 启动实验任务
 const startExperimentTask = async (taskId: string): Promise<string> => {
-  const token = getAuthToken();
-  if (!token) throw new Error('用户未登录');
+  const token = getAuthToken()
+  if (!token) throw new Error("用户未登录")
 
   const response = await fetch(`${API_BASE_URL}/experiment-tasks/${taskId}/start`, {
-    method: 'POST',
+    method: "POST",
     headers: {
-      'Authorization': `Bearer ${token}`
-    }
-  });
+      Authorization: `Bearer ${token}`,
+    },
+  })
 
-  if (!response.ok) throw new Error('启动实验失败');
-  const data = await response.json();
-  return data.data.sessionId; // 返回会话ID
-};
+  if (!response.ok) throw new Error("启动实验失败")
+  const data = await response.json()
+  return data.data.sessionId // 返回会话ID
+}
+
+// 获取任务下的所有学生报告
+const fetchTaskReports = async (taskId: string): Promise<TaskReport[]> => {
+  const token = getAuthToken()
+  if (!token) throw new Error("用户未登录")
+
+  const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/reports`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  if (!response.ok) throw new Error("获取任务报告失败")
+
+  const responseData = await response.json()
+  const reports = responseData?.data || []
+
+  return reports.map((report: any) => ({
+    id: String(report.id),
+    studentId: String(report.studentId),
+    studentName: report.studentName || "未知学生",
+    taskId: taskId,
+    taskName: report.taskName || "未知任务",
+    experimentTitle: report.experimentTitle || "未知实验",
+    submittedAt: report.submittedAt,
+    content: report.manualContent || "",
+    autoContent: report.autoContent || "",
+    grade: report.grade,
+    feedback: report.feedback,
+    status: mapReportStatus(report.status),
+    attachments:
+        report.attachments?.map((att: any) => ({
+          id: String(att.id),
+          name: att.fileName || att.name,
+          url: att.fileUrl || att.url,
+          type: att.resourceType || att.type,
+        })) || [],
+  }))
+}
+
+// 为报告评分
+const gradeReport = async (reportId: string, grade: number, feedback: string): Promise<void> => {
+  const token = getAuthToken()
+  if (!token) throw new Error("用户未登录")
+
+  const response = await fetch(`${API_BASE_URL}/reports/${reportId}/grade`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      grade,
+      feedback,
+    }),
+  })
+
+  if (!response.ok) {
+    const errorData = await response.json()
+    throw new Error(errorData.message || "评分失败")
+  }
+}
+
+const mapReportStatus = (status: string): "未提交" | "已提交" | "已批改" => {
+  switch (status?.toUpperCase()) {
+    case "NOT_SUBMITTED":
+      return "未提交"
+    case "SUBMITTED":
+      return "已提交"
+    case "GRADED":
+      return "已批改"
+    default:
+      return "未提交"
+  }
+}
 
 // 包装组件以提供 React Query 上下文
 export default function VirtualLabPageWrapper() {
@@ -445,55 +673,99 @@ export default function VirtualLabPageWrapper() {
       <QueryClientProvider client={queryClient}>
         <VirtualLabPage />
       </QueryClientProvider>
-  );
+  )
 }
 
 function VirtualLabPage() {
-  const router = useRouter();
+  const router = useRouter()
 
   // 新增班级和学生状态
-  const [classes, setClasses] = useState<ClassDTO[]>([]);
-  const [classStudentsMap, setClassStudentsMap] = useState<{ [key: number]: UserInfoDTO[] }>({});
-  const [loadingClasses, setLoadingClasses] = useState(false);
+  const [classes, setClasses] = useState<ClassDTO[]>([])
+  const [classStudentsMap, setClassStudentsMap] = useState<{ [key: number]: UserInfoDTO[] }>({})
+  const [loadingClasses, setLoadingClasses] = useState(false)
 
   // 分页状态
-  const [currentPage, setCurrentPage] = useState(0);
-  const [pageSize] = useState(10);
-  const [totalPages, setTotalPages] = useState(0);
+  const [currentPage, setCurrentPage] = useState(0)
+  const [pageSize] = useState(10)
+  const [totalPages, setTotalPages] = useState(0)
 
   // 使用 React Query 获取数据（带分页）
-  const { data: user, isLoading: userLoading, error: userError } = useQuery<User>({
-    queryKey: ['user'],
+  const {
+    data: user,
+    isLoading: userLoading,
+    error: userError,
+  } = useQuery<UserType>({
+    queryKey: ["user"],
     queryFn: fetchUser,
-    staleTime: 1000 * 60 * 5
-  });
+    staleTime: 1000 * 60 * 5,
+  })
 
   const {
     data: experimentsData = { experiments: [], totalPages: 0 },
     isLoading: experimentsLoading,
     error: experimentsError,
-    refetch: refetchExperiments
+    refetch: refetchExperiments,
   } = useQuery({
-    queryKey: ['experiments', currentPage],
+    queryKey: ["experiments", currentPage],
     queryFn: () => fetchExperiments(currentPage, pageSize),
-    staleTime: 1000 * 60 * 5
-  });
+    staleTime: 1000 * 60 * 5,
+  })
 
   // 获取学生任务列表
   const { data: studentTasks = [], isLoading: studentTasksLoading } = useQuery<Assignment[]>({
-    queryKey: ['studentTasks', user?.id],
+    queryKey: ["studentTasks", user?.id],
     queryFn: () => fetchMyTasks(),
-    enabled: !!user && user.role === 'student',
-    staleTime: 1000 * 60 * 5
-  });
+    enabled: !!user && user.role === "student",
+    staleTime: 1000 * 60 * 5,
+  })
 
   // 获取教师发布的任务
   const { data: teacherTasks = [], isLoading: teacherTasksLoading } = useQuery<Assignment[]>({
-    queryKey: ['teacherTasks', user?.id],
+    queryKey: ["teacherTasks", user?.id],
     queryFn: () => fetchTeacherTasks(),
-    enabled: !!user && user.role === 'teacher',
-    staleTime: 1000 * 60 * 5
-  });
+    enabled: !!user && user.role === "teacher",
+    staleTime: 1000 * 60 * 5,
+  })
+
+  // 获取所有任务的报告数据
+  const { data: allTaskReports = [], isLoading: taskReportsLoading } = useQuery<TaskReport[]>({
+    queryKey: ["allTaskReports", user?.id],
+    queryFn: async () => {
+      if (!teacherTasks.length) return []
+
+      const allReports: TaskReport[] = []
+      for (const task of teacherTasks) {
+        try {
+          const reports = await fetchTaskReports(task.id)
+          allReports.push(...reports)
+        } catch (error) {
+          console.error(`获取任务 ${task.id} 的报告失败:`, error)
+        }
+      }
+      return allReports
+    },
+    enabled: !!user && user.role === "teacher" && teacherTasks.length > 0,
+    staleTime: 1000 * 60 * 5,
+  })
+
+  // 计算评分统计数据
+  const gradingStats: GradingStats = useMemo(() => {
+    const totalReports = allTaskReports.length
+    const submittedReports = allTaskReports.filter((r) => r.status === "已提交" || r.status === "已批改").length
+    const gradedReports = allTaskReports.filter((r) => r.status === "已批改").length
+    const gradedReportsWithScore = allTaskReports.filter((r) => r.status === "已批改" && r.grade != null)
+    const averageGrade =
+        gradedReportsWithScore.length > 0
+            ? gradedReportsWithScore.reduce((sum, r) => sum + (r.grade || 0), 0) / gradedReportsWithScore.length
+            : 0
+
+    return {
+      totalReports,
+      submittedReports,
+      gradedReports,
+      averageGrade,
+    }
+  }, [allTaskReports])
 
   // 状态管理
   const [filteredExperiments, setFilteredExperiments] = useState<Experiment[]>([])
@@ -501,6 +773,7 @@ function VirtualLabPage() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all")
   const [difficultyFilter, setDifficultyFilter] = useState<string>("all")
   const [selectedExperiment, setSelectedExperiment] = useState<Experiment | null>(null)
+  const [selectedTask, setSelectedTask] = useState<Assignment | null>(null) // 添加选中的任务
   const [isCreating, setIsCreating] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [currentExperiment, setCurrentExperiment] = useState<Experiment | null>(null)
@@ -534,77 +807,96 @@ function VirtualLabPage() {
     studentId: "",
     startTime: "",
     endTime: "",
-    requirements: ""
+    requirements: "",
   })
 
   // 突变操作
   const createExperimentMutation = useMutation({
-    mutationFn: ({ newExperiment, files }: { newExperiment: any, files: any }) =>
+    mutationFn: ({ newExperiment, files }: { newExperiment: any; files: any }) =>
         createExperiment(newExperiment, files),
     onSuccess: (newExp) => {
-      queryClient.invalidateQueries({ queryKey: ['experiments'] });
-      setIsCreating(false);
+      queryClient.invalidateQueries({ queryKey: ["experiments"] })
+      setIsCreating(false)
       setNewExperiment({
-        title: "", description: "", category: "化学", difficulty: 3, duration: 30,
-      });
-      setSimulationPackage(null);
-      setThumbnailFile(null);
-    }
-  });
+        title: "",
+        description: "",
+        category: "化学",
+        difficulty: 3,
+        duration: 30,
+      })
+      setSimulationPackage(null)
+      setThumbnailFile(null)
+    },
+  })
 
   const submitReportMutation = useMutation({
-    mutationFn: ({ taskId, reportData, attachments }: { taskId: string, reportData: any, attachments: File[] }) =>
+    mutationFn: ({ taskId, reportData, attachments }: { taskId: string; reportData: any; attachments: File[] }) =>
         submitReport(taskId, reportData, attachments),
     onSuccess: (newReport) => {
       // 更新缓存数据...
-      queryClient.invalidateQueries({ queryKey: ['studentTasks', user?.id] });
-      setIsSubmittingReport(false);
-      setReportContent("");
-      setAttachments([]);
-    }
-  });
+      queryClient.invalidateQueries({ queryKey: ["studentTasks", user?.id] })
+      setIsSubmittingReport(false)
+      setReportContent("")
+      setAttachments([])
+    },
+  })
   const publishAssignmentMutation = useMutation({
     mutationFn: publishAssignment,
     onSuccess: () => {
       // MODIFIED: 发布成功后，让教师任务列表缓存失效，自动刷新列表
-      queryClient.invalidateQueries({ queryKey: ['teacherTasks'] });
-      setIsPublishing(false);
-      alert("任务发布成功！");
+      queryClient.invalidateQueries({ queryKey: ["teacherTasks"] })
+      setIsPublishing(false)
+      alert("任务发布成功！")
     },
     onError: (error: Error) => {
-      console.error("发布任务失败:", error);
+      console.error("发布任务失败:", error)
       // MODIFIED: 优化错误提示，显示后端返回的具体信息
-      alert(`发布任务失败: ${error.message}`);
-    }
-  });
+      alert(`发布任务失败: ${error.message}`)
+    },
+  })
 
   const startExperimentMutation = useMutation({
     mutationFn: (taskId: string) => startExperimentTask(taskId),
     onSuccess: (sessionId) => {
-      setSessionId(sessionId);
-      setSimulationStarted(true);
-    }
-  });
+      setSessionId(sessionId)
+      setSimulationStarted(true)
+    },
+  })
+
+  const gradeReportMutation = useMutation({
+    mutationFn: ({ reportId, grade, feedback }: { reportId: string; grade: number; feedback: string }) =>
+        gradeReport(reportId, grade, feedback),
+    onSuccess: () => {
+      // 刷新相关数据
+      queryClient.invalidateQueries({ queryKey: ["allTaskReports"] })
+      queryClient.invalidateQueries({ queryKey: ["teacherTasks"] })
+      alert("评分成功！")
+    },
+    onError: (error: Error) => {
+      console.error("评分失败:", error)
+      alert(`评分失败: ${error.message}`)
+    },
+  })
 
   const handlePublishAssignment = () => {
     // MODIFIED: 增加数据校验
     if (!currentExperiment) {
-      alert("错误：未选中任何实验。");
-      return;
+      alert("错误：未选中任何实验。")
+      return
     }
     if (!newAssignment.classId) {
-      alert("请选择要指派的班级。");
-      return;
+      alert("请选择要指派的班级。")
+      return
     }
 
-    // MODIFIED: 根据选择是“单个学生”还是“全班”来构建学生ID列表
+    // MODIFIED: 根据选择是"单个学生"还是"全班"来构建学生ID列表
     const studentIds = newAssignment.studentId
         ? [newAssignment.studentId]
-        : classStudentsMap[Number(newAssignment.classId)]?.map(s => s.id.toString()) || [];
+        : classStudentsMap[Number(newAssignment.classId)]?.map((s) => s.id.toString()) || []
 
     if (studentIds.length === 0) {
-      alert("该班级下没有学生，无法指派。");
-      return;
+      alert("该班级下没有学生，无法指派。")
+      return
     }
 
     // MODIFIED: 整合所有需要提交的数据
@@ -616,98 +908,97 @@ function VirtualLabPage() {
       endTime: newAssignment.endTime,
       requirements: newAssignment.requirements,
       studentIds: studentIds,
-    };
+    }
 
     // MODIFIED: 调用mutation来执行发布操作
-    publishAssignmentMutation.mutate(assignmentData);
-  };
+    publishAssignmentMutation.mutate(assignmentData)
+  }
 
   // 获取班级和学生数据
   useEffect(() => {
-    if (user && (user.role === 'teacher' || user.role === 'admin')) {
+    if (user && (user.role === "teacher" || user.role === "admin")) {
       const fetchClassesAndStudents = async () => {
-        setLoadingClasses(true);
-        const token = getAuthToken();
+        setLoadingClasses(true)
+        const token = getAuthToken()
         if (!token) {
-          setLoadingClasses(false);
-          return;
+          setLoadingClasses(false)
+          return
         }
 
         try {
           // 1. 获取所有班级数据
           const classesResponse = await fetch(`${API_BASE_URL}/admin/classes`, {
-            headers: { "Authorization": `Bearer ${token}` }
-          });
+            headers: { Authorization: `Bearer ${token}` },
+          })
 
-          if (!classesResponse.ok) throw new Error("获取班级列表失败");
+          if (!classesResponse.ok) throw new Error("获取班级列表失败")
 
-          const classesResponseJson = await classesResponse.json();
+          const classesResponseJson = await classesResponse.json()
 
           // 从响应中智能提取班级数组
-          const classesArray = classesResponseJson?.data?.records || classesResponseJson?.data || [];
+          const classesArray = classesResponseJson?.data?.records || classesResponseJson?.data || []
 
           // 安全检查，确保我们得到的是一个数组
           if (!Array.isArray(classesArray)) {
-            console.error("获取到的班级数据不是一个数组:", classesArray);
-            setLoadingClasses(false);
-            return;
+            console.error("获取到的班级数据不是一个数组:", classesArray)
+            setLoadingClasses(false)
+            return
           }
 
-          setClasses(classesArray);
+          setClasses(classesArray)
 
           // 2. 并发获取每个班级的学生列表
-          const classStudentsMap: { [key: number]: UserInfoDTO[] } = {};
+          const classStudentsMap: { [key: number]: UserInfoDTO[] } = {}
 
           await Promise.all(
               // 使用修正后的 classesArray
               classesArray.map(async (cls: ClassDTO) => {
                 try {
                   const classDetailResponse = await fetch(`${API_BASE_URL}/classes/${cls.id}`, {
-                    headers: { "Authorization": `Bearer ${token}` }
-                  });
+                    headers: { Authorization: `Bearer ${token}` },
+                  })
 
                   if (!classDetailResponse.ok) {
-                    console.error(`获取班级 ${cls.id} 详情失败`);
-                    return; // 单个请求失败不中断全部
+                    console.error(`获取班级 ${cls.id} 详情失败`)
+                    return // 单个请求失败不中断全部
                   }
 
-                  const classDetailJson = await classDetailResponse.json();
+                  const classDetailJson = await classDetailResponse.json()
 
                   // 从班级详情中智能提取学生（members）数组
-                  const membersArray = classDetailJson?.data?.members || classDetailJson?.data || classDetailJson?.members || [];
+                  const membersArray =
+                      classDetailJson?.data?.members || classDetailJson?.data || classDetailJson?.members || []
 
                   // 同样进行安全检查
-                  classStudentsMap[cls.id] = Array.isArray(membersArray) ? membersArray : [];
-
+                  classStudentsMap[cls.id] = Array.isArray(membersArray) ? membersArray : []
                 } catch (err) {
-                  console.error(`处理班级 ${cls.id} 数据时出错:`, err);
+                  console.error(`处理班级 ${cls.id} 数据时出错:`, err)
                 }
-              })
-          );
+              }),
+          )
 
-          setClassStudentsMap(classStudentsMap);
-
+          setClassStudentsMap(classStudentsMap)
         } catch (err) {
-          console.error("获取班级和学生数据失败:", err);
+          console.error("获取班级和学生数据失败:", err)
         } finally {
-          setLoadingClasses(false);
+          setLoadingClasses(false)
         }
-      };
+      }
 
-      fetchClassesAndStudents();
+      fetchClassesAndStudents()
     }
-  }, [user]); // 依赖项保持不变
+  }, [user]) // 依赖项保持不变
 
   useEffect(() => {
-    if (!user) return;
+    if (!user) return
 
-    let filtered = experimentsData.experiments || [];
+    let filtered = experimentsData.experiments || []
 
     if (searchTerm) {
       filtered = filtered.filter(
           (exp) =>
               exp.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              exp.description.toLowerCase().includes(searchTerm.toLowerCase())
+              exp.description.toLowerCase().includes(searchTerm.toLowerCase()),
       )
     }
 
@@ -716,60 +1007,63 @@ function VirtualLabPage() {
     }
 
     if (difficultyFilter !== "all") {
-      filtered = filtered.filter((exp) => exp.difficulty === parseInt(difficultyFilter))
+      filtered = filtered.filter((exp) => exp.difficulty === Number.parseInt(difficultyFilter))
     }
 
-    setFilteredExperiments(filtered);
-    setTotalPages(experimentsData.totalPages);
-  }, [experimentsData, searchTerm, categoryFilter, difficultyFilter, user]);
+    setFilteredExperiments(filtered)
+    setTotalPages(experimentsData.totalPages)
+  }, [experimentsData, searchTerm, categoryFilter, difficultyFilter, user])
 
   // 启动仿真实验
   const handleStartSimulation = async (taskId: string) => {
     if (!simulationStarted) {
       try {
-        await startExperimentMutation.mutateAsync(taskId);
+        await startExperimentMutation.mutateAsync(taskId)
       } catch (error) {
-        console.error("启动实验失败:", error);
+        console.error("启动实验失败:", error)
       }
     }
-  };
+  }
 
   // 处理文件上传
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: React.Dispatch<React.SetStateAction<File | null>>) => {
+  const handleFileUpload = (
+      e: React.ChangeEvent<HTMLInputElement>,
+      setter: React.Dispatch<React.SetStateAction<File | null>>,
+  ) => {
     if (e.target.files && e.target.files.length > 0) {
-      setter(e.target.files[0]);
+      setter(e.target.files[0])
     }
-  };
+  }
 
   // 处理附件上传
   const handleAttachmentUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      const newAttachments = Array.from(e.target.files);
-      setAttachments(prev => [...prev, ...newAttachments]);
+      const newAttachments = Array.from(e.target.files)
+      setAttachments((prev) => [...prev, ...newAttachments])
     }
-  };
+  }
 
   // 移除附件
   const removeAttachment = (index: number) => {
-    setAttachments(prev => prev.filter((_, i) => i !== index));
-  };
+    setAttachments((prev) => prev.filter((_, i) => i !== index))
+  }
 
   // 当选择任务时获取自动生成的报告内容
   useEffect(() => {
     const fetchAutoReportContent = async (taskId: string) => {
       try {
-        const report = await getMyReport(taskId);
-        setAutoReportContent(report.autoContent || "");
+        const report = await getMyReport(taskId)
+        setAutoReportContent(report.autoContent || "")
       } catch (error) {
-        console.error("获取自动报告内容失败:", error);
-        setAutoReportContent("");
+        console.error("获取自动报告内容失败:", error)
+        setAutoReportContent("")
       }
-    };
+    }
 
     if (currentTask?.id) {
-      fetchAutoReportContent(currentTask.id);
+      fetchAutoReportContent(currentTask.id)
     }
-  }, [currentTask]);
+  }, [currentTask])
 
   const getCategoryIcon = (category: string) => {
     switch (category) {
@@ -788,95 +1082,122 @@ function VirtualLabPage() {
     return (
         <div className="flex">
           {[...Array(5)].map((_, i) => (
-              <Star
-                  key={i}
-                  className={`w-4 h-4 ${i < difficulty ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'}`}
-              />
+              <Star key={i} className={`w-4 h-4 ${i < difficulty ? "fill-yellow-400 text-yellow-400" : "text-gray-300"}`} />
           ))}
         </div>
     )
   }
 
-  const handleSelectExperiment = async (experiment: Experiment) => {
-    setSelectedExperiment(experiment);
+  const handleSelectExperiment = async (experiment: Experiment, task?: Assignment) => {
+    setSelectedExperiment(experiment)
+    setSelectedTask(task || null)
     try {
-      const detailedData = await getExperimentById(experiment.id);
+      const detailedData = await getExperimentById(experiment.id)
       if (detailedData) {
-        setSelectedExperiment(detailedData);
+        setSelectedExperiment(detailedData)
       }
     } catch (error) {
-      console.error("获取实验详情失败:", error);
+      console.error("获取实验详情失败:", error)
     }
-  };
+  }
 
   const handleCreateExperiment = () => {
     createExperimentMutation.mutate({
       newExperiment,
       files: {
         simulationPackage,
-        thumbnail: thumbnailFile
-      }
-    });
-  };
-
-  // 获取实验详情
-  const getExperimentById = async (id: string): Promise<Experiment> => {
-    const rawData = await fetchFromApi(`${API_BASE_URL}/experiments/${id}`);
-    if (!rawData) {
-      throw new Error(`无法找到ID为 ${id} 的实验`);
-    }
-    return normalizeExperiment(rawData);
-  };
+        thumbnail: thumbnailFile,
+      },
+    })
+  }
 
   // 获取我的任务列表（学生）
   const fetchMyTasks = async (status?: string): Promise<Assignment[]> => {
-    const token = getAuthToken();
-    if (!token) throw new Error('用户未登录');
+    const token = getAuthToken()
+    if (!token) throw new Error("用户未登录")
 
-    const params = new URLSearchParams();
-    if (status) params.append('status', status);
+    const params = new URLSearchParams()
+    if (status) params.append("status", status)
 
     const response = await fetch(`${API_BASE_URL}/experiment-tasks/my-tasks?${params.toString()}`, {
       headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    });
+        Authorization: `Bearer ${token}`,
+      },
+    })
 
-    if (!response.ok) throw new Error('获取任务列表失败');
+    if (!response.ok) throw new Error("获取任务列表失败")
 
-    const responseData = await response.json();
-    const tasks = responseData?.data?.records || responseData?.data || [];
-    return Array.isArray(tasks) ? tasks : [];
-  };
+    const responseData = await response.json()
+    const tasks = responseData?.data?.records || responseData?.data || []
+
+    // 为每个任务添加实验标题
+    const tasksWithExperimentTitle = await Promise.all(
+        tasks.map(async (task: any) => {
+          try {
+            const experiment = await getExperimentById(task.experimentId)
+            return {
+              ...task,
+              experimentTitle: experiment.title,
+            }
+          } catch (error) {
+            console.error(`获取实验 ${task.experimentId} 标题失败:`, error)
+            return {
+              ...task,
+              experimentTitle: "未知实验",
+            }
+          }
+        }),
+    )
+
+    return Array.isArray(tasksWithExperimentTitle) ? tasksWithExperimentTitle : []
+  }
 
   // 获取教师发布的任务
-  const fetchTeacherTasks = async (
-      classId?: string,
-      experimentId?: string
-  ): Promise<Assignment[]> => {
-    const token = getAuthToken();
-    if (!token) throw new Error('用户未登录');
+  const fetchTeacherTasks = async (classId?: string, experimentId?: string): Promise<Assignment[]> => {
+    const token = getAuthToken()
+    if (!token) throw new Error("用户未登录")
 
-    const params = new URLSearchParams();
-    if (classId) params.append('classId', classId);
-    if (experimentId) params.append('experimentId', experimentId);
+    const params = new URLSearchParams()
+    if (classId) params.append("classId", classId)
+    if (experimentId) params.append("experimentId", experimentId)
 
     const response = await fetch(`${API_BASE_URL}/experiment-tasks/teacher-tasks?${params.toString()}`, {
       headers: {
-        'Authorization': `Bearer ${token}`
-      }
-    });
+        Authorization: `Bearer ${token}`,
+      },
+    })
 
-    if (!response.ok) throw new Error('获取教师任务失败');
+    if (!response.ok) throw new Error("获取教师任务失败")
 
-    const responseData = await response.json();
-    const tasks = responseData?.data?.records || responseData?.data || [];
-    return Array.isArray(tasks) ? tasks : [];
-  };
+    const responseData = await response.json()
+    const tasks = responseData?.data?.records || responseData?.data || []
+    return Array.isArray(tasks) ? tasks : []
+  }
 
   const getCurrentStudentReport = (task: Assignment) => {
-    if (!user) return null;
-    return task.reports?.find(report => report.studentId === user.id);
+    if (!user) return null
+    return task.reports?.find((report) => report.studentId === user.id)
+  }
+
+  // 处理查看任务详情
+  const handleViewTaskDetails = (task: Assignment) => {
+    // 找到对应的实验
+    const experiment = experimentsData.experiments.find((e) => e.id === task.experimentId)
+    if (experiment) {
+      handleSelectExperiment(experiment, task)
+    } else {
+      alert("找不到对应的实验信息")
+    }
+  }
+
+  // 处理继续实验
+  const handleContinueExperiment = (task: Assignment) => {
+    const experiment = experimentsData.experiments.find((e) => e.id === task.experimentId)
+    if (experiment) {
+      handleSelectExperiment(experiment, task)
+    } else {
+      alert("找不到对应的实验信息")
+    }
   }
 
   // 加载错误处理
@@ -890,8 +1211,8 @@ function VirtualLabPage() {
               <Button
                   variant="default"
                   onClick={() => {
-                    if (userError) queryClient.refetchQueries({ queryKey: ['user'] });
-                    if (experimentsError) queryClient.refetchQueries({ queryKey: ['experiments'] });
+                    if (userError) queryClient.refetchQueries({ queryKey: ["user"] })
+                    if (experimentsError) queryClient.refetchQueries({ queryKey: ["experiments"] })
                   }}
               >
                 重新加载
@@ -899,11 +1220,11 @@ function VirtualLabPage() {
             </div>
           </div>
         </div>
-    );
+    )
   }
 
   // 加载中状态
-  if (userLoading || experimentsLoading || studentTasksLoading || teacherTasksLoading) {
+  if (userLoading || experimentsLoading || studentTasksLoading || teacherTasksLoading || taskReportsLoading) {
     return (
         <div className="min-h-screen bg-gray-50">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -950,7 +1271,7 @@ function VirtualLabPage() {
             </div>
           </div>
         </div>
-    );
+    )
   }
 
   if (!user) {
@@ -958,7 +1279,7 @@ function VirtualLabPage() {
   }
 
   if (selectedExperiment) {
-    const currentTask = selectedExperiment.assignments?.[0]
+    const currentTask = selectedTask || selectedExperiment.assignments?.[0]
     const studentReport = currentTask && user ? getCurrentStudentReport(currentTask) : null
 
     return (
@@ -967,7 +1288,10 @@ function VirtualLabPage() {
             <div className="flex items-center justify-between mb-6">
               <Button
                   variant="ghost"
-                  onClick={() => setSelectedExperiment(null)}
+                  onClick={() => {
+                    setSelectedExperiment(null)
+                    setSelectedTask(null)
+                  }}
                   className="text-white hover:bg-gray-800"
               >
                 ← 返回实验列表
@@ -976,9 +1300,14 @@ function VirtualLabPage() {
                 <Button
                     variant="outline"
                     className="text-white border-white hover:bg-white hover:text-gray-900 bg-transparent"
+                    onClick={() =>
+                        router.push(
+                            `/virtual-lab/submit-report?taskId=${currentTask?.id}&experimentId=${selectedExperiment.id}`,
+                        )
+                    }
                 >
                   <Download className="w-4 h-4 mr-2" />
-                  下载报告
+                  生成报告
                 </Button>
               </div>
             </div>
@@ -1170,8 +1499,11 @@ function VirtualLabPage() {
                                         <span className="text-sm font-medium">状态</span>
                                         <Badge
                                             variant={
-                                              studentReport.status === "已批改" ? "default" :
-                                                  studentReport.status === "已提交" ? "secondary" : "destructive"
+                                              studentReport.status === "已批改"
+                                                  ? "default"
+                                                  : studentReport.status === "已提交"
+                                                      ? "secondary"
+                                                      : "destructive"
                                             }
                                         >
                                           {studentReport.status}
@@ -1193,14 +1525,25 @@ function VirtualLabPage() {
 
                                       <div className="mt-4">
                                         {studentReport.status === "未提交" ? (
-                                            <Dialog open={isSubmittingReport || isSavingDraft} onOpenChange={(open) => {
-                                              if (!open) {
-                                                setIsSubmittingReport(false);
-                                                setIsSavingDraft(false);
-                                              }
-                                            }}>
+                                            <Dialog
+                                                open={isSubmittingReport || isSavingDraft}
+                                                onOpenChange={(open) => {
+                                                  if (!open) {
+                                                    setIsSubmittingReport(false)
+                                                    setIsSavingDraft(false)
+                                                  }
+                                                }}
+                                            >
                                               <DialogTrigger asChild>
-                                                <Button className="w-full" size="sm">
+                                                <Button
+                                                    className="w-full"
+                                                    size="sm"
+                                                    onClick={() =>
+                                                        router.push(
+                                                            `/virtual-lab/submit-report?taskId=${currentTask.id}&experimentId=${selectedExperiment.id}`,
+                                                        )
+                                                    }
+                                                >
                                                   <FileText className="w-4 h-4 mr-2" />
                                                   提交实验报告
                                                 </Button>
@@ -1256,7 +1599,10 @@ function VirtualLabPage() {
                                                     {attachments.length > 0 && (
                                                         <div className="mt-2 space-y-1">
                                                           {attachments.map((file, index) => (
-                                                              <div key={index} className="flex items-center justify-between bg-gray-100 dark:bg-gray-700 p-2 rounded text-sm">
+                                                              <div
+                                                                  key={index}
+                                                                  className="flex items-center justify-between bg-gray-100 dark:bg-gray-700 p-2 rounded text-sm"
+                                                              >
                                                                 <div className="truncate max-w-xs">{file.name}</div>
                                                                 <Button
                                                                     variant="ghost"
@@ -1273,25 +1619,27 @@ function VirtualLabPage() {
                                                   </div>
                                                 </div>
                                                 <DialogFooter className="flex justify-between">
-                                                  <Button
-                                                      variant="secondary"
-                                                      onClick={() => { }}
-                                                  >
+                                                  <Button variant="secondary" onClick={() => {}}>
                                                     保存草稿
                                                   </Button>
                                                   <div className="space-x-2">
-                                                    <Button variant="outline" onClick={() => {
-                                                      setIsSubmittingReport(false);
-                                                      setIsSavingDraft(false);
-                                                    }}>
+                                                    <Button
+                                                        variant="outline"
+                                                        onClick={() => {
+                                                          setIsSubmittingReport(false)
+                                                          setIsSavingDraft(false)
+                                                        }}
+                                                    >
                                                       取消
                                                     </Button>
                                                     <Button
-                                                        onClick={() => submitReportMutation.mutate({
-                                                          taskId: currentTask.id,
-                                                          reportData: { content: reportContent },
-                                                          attachments
-                                                        })}
+                                                        onClick={() =>
+                                                            submitReportMutation.mutate({
+                                                              taskId: currentTask.id,
+                                                              reportData: { content: reportContent },
+                                                              attachments,
+                                                            })
+                                                        }
                                                         disabled={submitReportMutation.isPending}
                                                     >
                                                       {submitReportMutation.isPending ? "提交中..." : "提交报告"}
@@ -1301,7 +1649,7 @@ function VirtualLabPage() {
                                               </DialogContent>
                                             </Dialog>
                                         ) : studentReport.status === "已批改" ? (
-                                            <Button variant="outline" className="w-full" size="sm">
+                                            <Button variant="outline" className="w-full bg-transparent" size="sm">
                                               <FileBarChart className="w-4 h-4 mr-2" />
                                               查看详细报告
                                             </Button>
@@ -1328,8 +1676,11 @@ function VirtualLabPage() {
                                               <span className="text-sm font-medium">{report.studentName}</span>
                                               <Badge
                                                   variant={
-                                                    report.status === "已批改" ? "default" :
-                                                        report.status === "已提交" ? "secondary" : "destructive"
+                                                    report.status === "已批改"
+                                                        ? "default"
+                                                        : report.status === "已提交"
+                                                            ? "secondary"
+                                                            : "destructive"
                                                   }
                                                   className="text-xs"
                                               >
@@ -1338,73 +1689,11 @@ function VirtualLabPage() {
                                             </div>
 
                                             <div className="mt-2 flex justify-end">
-                                              <Dialog open={isGrading} onOpenChange={setIsGrading}>
-                                                <DialogTrigger asChild>
-                                                  // 找到教师评分按钮的位置（在实验详情页面的侧边栏中）
-                                                  <Button
-                                                      size="sm"
-                                                      variant="outline"
-                                                      asChild // 添加 asChild 属性
-                                                      disabled={report.status === "未提交"}
-                                                  >
-                                                    <Link href={`/virtual-lab/reports/${report.id}`}>
-                                                      {report.status === "已批改" ? "查看评分" : "评分"}
-                                                    </Link>
-                                                  </Button>
-                                                </DialogTrigger>
-                                                <DialogContent className="sm:max-w-md">
-                                                  <DialogHeader>
-                                                    <DialogTitle>
-                                                      {report.status === "已批改" ? "查看评分" : "评分报告"}
-                                                    </DialogTitle>
-                                                    <p className="text-sm text-gray-500">学生: {report.studentName}</p>
-                                                  </DialogHeader>
-                                                  <div className="grid gap-4 py-4">
-                                                    <div className="space-y-2">
-                                                      <Label htmlFor="grade">成绩 (0-100)</Label>
-                                                      <Input
-                                                          id="grade"
-                                                          type="number"
-                                                          min="0"
-                                                          max="100"
-                                                          value={gradeValue}
-                                                          onChange={(e) => setGradeValue(parseInt(e.target.value))}
-                                                          disabled={report.status === "已批改"}
-                                                      />
-                                                    </div>
-                                                    <div className="space-y-2">
-                                                      <Label htmlFor="feedback">评语</Label>
-                                                      <Textarea
-                                                          id="feedback"
-                                                          value={feedback}
-                                                          onChange={(e) => setFeedback(e.target.value)}
-                                                          placeholder="请输入评语..."
-                                                          disabled={report.status === "已批改"}
-                                                      />
-                                                    </div>
-                                                    {report.content && (
-                                                        <div className="space-y-2">
-                                                          <Label>报告内容</Label>
-                                                          <div className="bg-gray-100 dark:bg-gray-800 p-3 rounded text-sm max-h-40 overflow-y-auto">
-                                                            {report.content}
-                                                          </div>
-                                                        </div>
-                                                    )}
-                                                  </div>
-                                                  <DialogFooter>
-                                                    <DialogClose asChild>
-                                                      <Button variant="outline">关闭</Button>
-                                                    </DialogClose>
-                                                    {report.status !== "已批改" && (
-                                                        <Button
-                                                            onClick={() => { }}
-                                                        >
-                                                          提交评分
-                                                        </Button>
-                                                    )}
-                                                  </DialogFooter>
-                                                </DialogContent>
-                                              </Dialog>
+                                              <Button size="sm" variant="outline" asChild disabled={report.status === "未提交"}>
+                                                <Link href={`/virtual-lab/reports/${report.id}`}>
+                                                  {report.status === "已批改" ? "查看评分" : "评分"}
+                                                </Link>
+                                              </Button>
                                             </div>
                                           </div>
                                       ))}
@@ -1442,8 +1731,8 @@ function VirtualLabPage() {
                     open={isCreating || isEditing}
                     onOpenChange={(open) => {
                       if (!open) {
-                        setIsCreating(false);
-                        setIsEditing(false);
+                        setIsCreating(false)
+                        setIsEditing(false)
                       }
                     }}
                 >
@@ -1456,9 +1745,7 @@ function VirtualLabPage() {
                   <DialogContent className="sm:max-w-[600px]">
                     <DialogHeader>
                       <DialogTitle>{isEditing ? "编辑实验" : "创建新实验"}</DialogTitle>
-                      <DialogDescription>
-                        填写以下表单来创建或编辑一个虚拟仿真实验。
-                      </DialogDescription>
+                      <DialogDescription>填写以下表单来创建或编辑一个虚拟仿真实验。</DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
                       <div className="grid grid-cols-4 items-center gap-4">
@@ -1510,7 +1797,9 @@ function VirtualLabPage() {
                         </Label>
                         <Select
                             value={newExperiment.difficulty.toString()}
-                            onValueChange={(value) => setNewExperiment({ ...newExperiment, difficulty: parseInt(value) })}
+                            onValueChange={(value) =>
+                                setNewExperiment({ ...newExperiment, difficulty: Number.parseInt(value) })
+                            }
                         >
                           <SelectTrigger className="col-span-3">
                             <SelectValue placeholder="选择难度" />
@@ -1532,7 +1821,9 @@ function VirtualLabPage() {
                             id="duration"
                             type="number"
                             value={newExperiment.duration}
-                            onChange={(e) => setNewExperiment({ ...newExperiment, duration: parseInt(e.target.value) || 0 })}
+                            onChange={(e) =>
+                                setNewExperiment({ ...newExperiment, duration: Number.parseInt(e.target.value) || 0 })
+                            }
                             className="col-span-3"
                             placeholder="输入预计分钟数"
                         />
@@ -1567,21 +1858,7 @@ function VirtualLabPage() {
                       </div>
                     </div>
                     <DialogFooter>
-                      <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => {
-                            setIsCreating(false);
-                            setIsEditing(false);
-                          }}
-                      >
-                        取消
-                      </Button>
-                      <Button
-                          type="button"
-                          onClick={handleCreateExperiment}
-                          disabled={createExperimentMutation.isPending}
-                      >
+                      <Button type="submit" onClick={handleCreateExperiment} disabled={createExperimentMutation.isPending}>
                         {createExperimentMutation.isPending ? "创建中..." : "创建实验"}
                       </Button>
                     </DialogFooter>
@@ -1590,501 +1867,352 @@ function VirtualLabPage() {
             )}
           </div>
 
-          {/* 筛选器 */}
           <Card className="mb-6">
-            <CardContent className="pt-6">
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="relative">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                  <Input
-                      placeholder="搜索实验..."
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      className="pl-10"
-                  />
-                </div>
-
-                <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="选择学科" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">全部学科</SelectItem>
-                    <SelectItem value="化学">化学</SelectItem>
-                    <SelectItem value="物理">物理</SelectItem>
-                    <SelectItem value="生物">生物</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                <Select value={difficultyFilter} onValueChange={setDifficultyFilter}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="选择难度" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">全部难度</SelectItem>
-                    <SelectItem value="1">1 星</SelectItem>
-                    <SelectItem value="2">2 星</SelectItem>
-                    <SelectItem value="3">3 星</SelectItem>
-                    <SelectItem value="4">4 星</SelectItem>
-                    <SelectItem value="5">5 星</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                {/* 只对学生显示"我的实验记录"按钮 */}
-                {user?.role === "student" && (
-                    <Button variant="outline">
-                      <BookOpen className="w-4 h-4 mr-2" />
-                      我的实验记录
-                    </Button>
-                )}
+            <CardContent className="flex items-center space-x-4">
+              <div className="flex-1">
+                <Input
+                    type="text"
+                    placeholder="搜索实验..."
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
               </div>
+              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="所有学科" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">所有学科</SelectItem>
+                  <SelectItem value="化学">化学</SelectItem>
+                  <SelectItem value="物理">物理</SelectItem>
+                  <SelectItem value="生物">生物</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={difficultyFilter} onValueChange={setDifficultyFilter}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="所有难度" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">所有难度</SelectItem>
+                  <SelectItem value="1">1 星 (初级)</SelectItem>
+                  <SelectItem value="2">2 星</SelectItem>
+                  <SelectItem value="3">3 星 (中级)</SelectItem>
+                  <SelectItem value="4">4 星</SelectItem>
+                  <SelectItem value="5">5 星 (高级)</SelectItem>
+                </SelectContent>
+              </Select>
             </CardContent>
           </Card>
 
-          <Tabs defaultValue={user?.role === "teacher" ? "library" : "assigned"} className="space-y-6">
-            {user?.role === "teacher" && (
-                <TabsList>
-                  <TabsTrigger value="library">
-                    <Library className="w-4 h-4 mr-2" />
-                    实验库
-                  </TabsTrigger>
-                  <TabsTrigger value="published">
-                    <List className="w-4 h-4 mr-2" />
-                    已发布任务
-                  </TabsTrigger>
-                </TabsList>
-            )}
+          {/* 教师专属的统计卡片 */}
+          {(user?.role === "teacher" || user?.role === "admin") && (
+              <Card className="mb-6">
+                <CardContent className="pt-6">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="flex flex-col items-center justify-center">
+                      <FileText className="h-6 w-6 text-blue-500 mb-2" />
+                      <div className="text-2xl font-bold">{gradingStats.totalReports}</div>
+                      <div className="text-sm text-gray-500">总报告数</div>
+                    </div>
+                    <div className="flex flex-col items-center justify-center">
+                      <AlertCircle className="h-6 w-6 text-yellow-500 mb-2" />
+                      <div className="text-2xl font-bold">{gradingStats.submittedReports - gradingStats.gradedReports}</div>
+                      <div className="text-sm text-gray-500">待评分报告</div>
+                    </div>
+                    <div className="flex flex-col items-center justify-center">
+                      <CheckCircle className="h-6 w-6 text-green-500 mb-2" />
+                      <div className="text-2xl font-bold">{gradingStats.gradedReports}</div>
+                      <div className="text-sm text-gray-500">已评分报告</div>
+                    </div>
+                    <div className="flex flex-col items-center justify-center">
+                      <Award className="h-6 w-6 text-purple-500 mb-2" />
+                      <div className="text-2xl font-bold">{gradingStats.averageGrade.toFixed(1)}</div>
+                      <div className="text-sm text-gray-500">平均分</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+          )}
 
-            <TabsContent value="library">
+          <Tabs defaultValue="experiments" className="space-y-4">
+            <TabsList>
+              <TabsTrigger value="experiments">实验列表</TabsTrigger>
+              {user?.role === "student" && <TabsTrigger value="myTasks">我的任务</TabsTrigger>}
+              {(user?.role === "teacher" || user?.role === "admin") && (
+                  <TabsTrigger value="teacherTasks">已发布任务</TabsTrigger>
+              )}
+            </TabsList>
+            <TabsContent value="experiments" className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {filteredExperiments.map((experiment) => (
-                    <Card key={experiment.id} className="flex flex-col justify-between cursor-pointer hover:shadow-lg transition-shadow">
-                      <div>
-                        <div className="aspect-video bg-gray-100 rounded-t-lg overflow-hidden relative" onClick={() => handleSelectExperiment(experiment)}>
-                          <div className="w-full h-full bg-gray-200 flex items-center justify-center">
-                            <FlaskConical className="w-12 h-12 text-gray-400" />
-                          </div>
-                          <div className="absolute top-2 right-2">
-                            <Badge variant={experiment.isSystem ? "default" : "secondary"} className="flex items-center">
-                              {getCategoryIcon(experiment.category)}
-                              <span className="ml-1">{experiment.isSystem ? "系统实验" : "自定义实验"}</span>
-                            </Badge>
-                          </div>
-                        </div>
-                        <div onClick={() => handleSelectExperiment(experiment)}>
-                          <CardHeader>
-                            <div className="flex justify-between items-start">
-                              <CardTitle className="text-lg">{experiment.title}</CardTitle>
-                              <div className="flex items-center space-x-1">
-                                <span className="text-xs text-gray-500">难度:</span>
-                                {renderStarRating(experiment.difficulty)}
-                              </div>
-                            </div>
-                            <CardDescription className="line-clamp-2">{experiment.description}</CardDescription>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="space-y-4">
-                              <div className="flex items-center justify-between">
-
-                                <div className="flex items-center space-x-1">
-                                  <Clock className="w-4 h-4 text-gray-500" />
-                                  <span className="text-sm text-gray-600">{experiment.duration} 分钟</span>
-                                </div>
-                              </div>
-                              {/* 只对学生显示进度条 */}
-                              {user?.role === "student" && experiment.progress > 0 && (
-                                  <div>
-                                    <div className="flex justify-between text-sm mb-2">
-                                      <span>进度</span>
-                                      <span>{experiment.progress}%</span>
-                                    </div>
-                                    <Progress value={experiment.progress} />
-                                  </div>
-                              )}
-                            </div>
-                          </CardContent>
-                        </div>
+                    <Card
+                        key={experiment.id}
+                        onClick={() => handleSelectExperiment(experiment)}
+                        className="cursor-pointer hover:shadow-md transition-shadow duration-300"
+                    >
+                      <div className="aspect-video bg-gray-100 rounded-t-lg overflow-hidden">
+                        <img
+                            src={experiment.thumbnail || "https://via.placeholder.com/400x225"}
+                            alt={experiment.title}
+                            className="object-cover w-full h-full"
+                        />
                       </div>
+                      <CardHeader>
+                        <CardTitle>{experiment.title}</CardTitle>
+                        <CardDescription>{experiment.description}</CardDescription>
+                      </CardHeader>
                       <CardContent>
                         <div className="space-y-4">
-                          {(user?.role === "teacher" || user?.role === "admin") ? (
-                              <div className="flex justify-end gap-2 mt-4">
-                                <Dialog open={isPublishing && currentExperiment?.id === experiment.id} onOpenChange={(open) => { if (!open) { setIsPublishing(false); setCurrentExperiment(null); } }}>
-                                  <DialogTrigger asChild>
-                                    {/* MODIFIED: 修复发布按钮的点击逻辑 */}
-                                    <Button variant="default" size="sm" onClick={(e) => {
-                                      e.stopPropagation(); // 阻止事件冒泡，防止触发卡片点击
-                                      setCurrentExperiment(experiment);
-                                      setNewAssignment({ // 预填表单
-                                        taskName: experiment.title,
-                                        classId: "", studentId: "", startTime: "", endTime: "",
-                                        requirements: experiment.description
-                                      });
-                                      setIsPublishing(true);
-                                    }}>
-                                      <Send className="w-4 h-4 mr-1" />发布
-                                    </Button>
-                                  </DialogTrigger>
-                                  <DialogContent className="sm:max-w-md">
-                                    <DialogHeader>
-                                      <DialogTitle>发布实验任务: {experiment.title}</DialogTitle>
-                                      <DialogDescription>
-                                        配置任务详情，并将此实验指派给指定班级或学生。
-                                      </DialogDescription>
-                                    </DialogHeader>
-                                    <div className="grid gap-4 py-4">
-                                      <div className="grid grid-cols-4 items-center gap-4">
-                                        <Label htmlFor="taskName" className="text-right">
-                                          任务名称
-                                        </Label>
-                                        <Input
-                                            id="taskName"
-                                            value={newAssignment.taskName}
-                                            onChange={(e) => setNewAssignment({ ...newAssignment, taskName: e.target.value })}
-                                            className="col-span-3"
-                                            placeholder="输入任务名称"
-                                        />
-                                      </div>
-
-                                      {/* 班级选择 - 使用真实数据 */}
-                                      <div className="grid grid-cols-4 items-center gap-4">
-                                        <Label htmlFor="class" className="text-right">
-                                          指派班级
-                                        </Label>
-                                        <Select
-                                            value={newAssignment.classId}
-                                            onValueChange={(value) => setNewAssignment({ ...newAssignment, classId: value, studentId: "" })}
-                                            disabled={loadingClasses}
-                                        >
-                                          <SelectTrigger className="col-span-3">
-                                            {loadingClasses ? (
-                                                <span>加载班级中...</span>
-                                            ) : classes.length === 0 ? (
-                                                <span>暂无班级数据</span>
-                                            ) : (
-                                                <SelectValue placeholder="选择班级" />
-                                            )}
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            {classes.map(cls => (
-                                                <SelectItem key={cls.id} value={cls.id.toString()}>
-                                                  {cls.name}
-                                                </SelectItem>
-                                            ))}
-                                          </SelectContent>
-                                        </Select>
-                                      </div>
-
-                                      {/* 学生选择 - 使用真实数据 */}
-                                      {newAssignment.classId && (
-                                          <div className="grid grid-cols-4 items-center gap-4">
-                                            <Label htmlFor="student" className="text-right">
-                                              指定学生
-                                            </Label>
-                                            <Select
-                                                value={newAssignment.studentId}
-                                                onValueChange={(value) => setNewAssignment({ ...newAssignment, studentId: value })}
-                                                disabled={loadingClasses}
-                                            >
-                                              <SelectTrigger className="col-span-3">
-                                                <SelectValue placeholder="选择学生 (可选)" />
-                                              </SelectTrigger>
-                                              <SelectContent>
-                                                <SelectItem value="">全班学生</SelectItem>
-                                                {classStudentsMap[Number(newAssignment.classId)]?.map(student => (
-                                                    <SelectItem key={student.id} value={student.id.toString()}>
-                                                      {student.name}
-                                                    </SelectItem>
-                                                ))}
-                                              </SelectContent>
-                                            </Select>
-                                          </div>
-                                      )}
-
-                                      <div className="grid grid-cols-4 items-center gap-4">
-                                        <Label htmlFor="startTime" className="text-right">
-                                          开始时间
-                                        </Label>
-                                        <Input
-                                            id="startTime"
-                                            type="datetime-local"
-                                            value={newAssignment.startTime}
-                                            onChange={(e) => setNewAssignment({ ...newAssignment, startTime: e.target.value })}
-                                            className="col-span-3"
-                                        />
-                                      </div>
-                                      <div className="grid grid-cols-4 items-center gap-4">
-                                        <Label htmlFor="endTime" className="text-right">
-                                          截止时间
-                                        </Label>
-                                        <Input
-                                            id="endTime"
-                                            type="datetime-local"
-                                            value={newAssignment.endTime}
-                                            onChange={(e) => setNewAssignment({ ...newAssignment, endTime: e.target.value })}
-                                            className="col-span-3"
-                                        />
-                                      </div>
-                                      <div className="grid grid-cols-4 items-center gap-4">
-                                        <Label htmlFor="requirements" className="text-right">
-                                          任务要求
-                                        </Label>
-                                        <Textarea
-                                            id="requirements"
-                                            value={newAssignment.requirements}
-                                            onChange={(e) => setNewAssignment({ ...newAssignment, requirements: e.target.value })}
-                                            className="col-span-3"
-                                            rows={3}
-                                            placeholder="输入实验要求..."
-                                        />
-                                      </div>
-                                    </div>
-                                    <DialogFooter>
-                                      <Button
-                                          variant="outline"
-                                          onClick={() => setIsPublishing(false)}
-                                      >
-                                        取消
-                                      </Button>
-                                      <Button onClick={handlePublishAssignment} disabled={publishAssignmentMutation.isPending}>
-                                        {publishAssignmentMutation.isPending ? "发布中..." : "发布任务"}
-                                      </Button>
-                                    </DialogFooter>
-                                  </DialogContent>
-                                </Dialog>
-
-                                {!experiment.isSystem && (
-                                    <>
-                                      <Button
-                                          variant="outline"
-                                          size="sm"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            setCurrentExperiment(experiment);
-                                            setIsEditing(true);
-                                            setNewExperiment({
-                                              title: experiment.title,
-                                              description: experiment.description,
-                                              category: experiment.category,
-                                              difficulty: experiment.difficulty,
-                                              duration: experiment.duration,
-                                            });
-                                          }}
-                                      >
-                                        <Edit className="w-4 h-4 mr-1" />
-                                        编辑
-                                      </Button>
-                                      <Button
-                                          variant="destructive"
-                                          size="sm"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                          }}
-                                      >
-                                        <Trash className="w-4 h-4 mr-1" />
-                                        删除
-                                      </Button>
-                                    </>
-                                )}
-                              </div>
-                          ) : (
-                              <Button
-                                  className="w-full mt-4"
-                                  onClick={() => setSelectedExperiment(experiment)}
+                          <div className="flex justify-between">
+                            <Badge variant="secondary">{experiment.category}</Badge>
+                            {renderStarRating(experiment.difficulty)}
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-sm text-gray-500">创建者: {experiment.creator}</span>
+                            <span className="text-sm text-gray-500">时长: {experiment.duration} 分钟</span>
+                          </div>
+                          {/* 教师可以发布实验 */}
+                          {(user?.role === "teacher" || user?.role === "admin") && (
+                              <Dialog
+                                  open={isPublishing}
+                                  onOpenChange={(open) => {
+                                    if (!open) {
+                                      setIsPublishing(false)
+                                    }
+                                  }}
                               >
-                                开始实验
-                              </Button>
+                                <DialogTrigger asChild>
+                                  <Button
+                                      variant="outline"
+                                      onClick={() => {
+                                        setIsPublishing(true)
+                                        setCurrentExperiment(experiment)
+                                      }}
+                                  >
+                                    <Send className="w-4 h-4 mr-2" />
+                                    发布实验
+                                  </Button>
+                                </DialogTrigger>
+                                <DialogContent className="sm:max-w-[600px]">
+                                  <DialogHeader>
+                                    <DialogTitle>发布实验任务</DialogTitle>
+                                    <DialogDescription>为班级发布实验任务，设置任务名称、截止时间等信息。</DialogDescription>
+                                  </DialogHeader>
+                                  <div className="grid gap-4 py-4">
+                                    <div className="grid grid-cols-4 items-center gap-4">
+                                      <Label htmlFor="taskName" className="text-right">
+                                        任务名称
+                                      </Label>
+                                      <Input
+                                          id="taskName"
+                                          value={newAssignment.taskName}
+                                          onChange={(e) => setNewAssignment({ ...newAssignment, taskName: e.target.value })}
+                                          className="col-span-3"
+                                          placeholder="输入任务名称"
+                                      />
+                                    </div>
+                                    <div className="grid grid-cols-4 items-center gap-4">
+                                      <Label htmlFor="classId" className="text-right">
+                                        选择班级
+                                      </Label>
+                                      <Select
+                                          value={newAssignment.classId}
+                                          onValueChange={(value) => {
+                                            setNewAssignment({ ...newAssignment, classId: value, studentId: "" })
+                                          }}
+                                      >
+                                        <SelectTrigger className="col-span-3">
+                                          <SelectValue placeholder="选择班级" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {classes.map((cls) => (
+                                              <SelectItem key={cls.id} value={String(cls.id)}>
+                                                {cls.name}
+                                              </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div className="grid grid-cols-4 items-center gap-4">
+                                      <Label htmlFor="studentId" className="text-right">
+                                        选择学生
+                                      </Label>
+                                      <Select
+                                          value={newAssignment.studentId}
+                                          onChange={(value) => setNewAssignment({ ...newAssignment, studentId: value })}
+                                          disabled={!newAssignment.classId}
+                                      >
+                                        <SelectTrigger className="col-span-3">
+                                          <SelectValue placeholder="选择学生 (可选)" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {classStudentsMap[Number(newAssignment.classId)]?.map((student) => (
+                                              <SelectItem key={student.id} value={String(student.id)}>
+                                                {student.name}
+                                              </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div className="grid grid-cols-4 items-center gap-4">
+                                      <Label htmlFor="startTime" className="text-right">
+                                        开始时间
+                                      </Label>
+                                      <Input
+                                          id="startTime"
+                                          type="datetime-local"
+                                          value={newAssignment.startTime}
+                                          onChange={(e) => setNewAssignment({ ...newAssignment, startTime: e.target.value })}
+                                          className="col-span-3"
+                                      />
+                                    </div>
+                                    <div className="grid grid-cols-4 items-center gap-4">
+                                      <Label htmlFor="endTime" className="text-right">
+                                        截止时间
+                                      </Label>
+                                      <Input
+                                          id="endTime"
+                                          type="datetime-local"
+                                          value={newAssignment.endTime}
+                                          onChange={(e) => setNewAssignment({ ...newAssignment, endTime: e.target.value })}
+                                          className="col-span-3"
+                                      />
+                                    </div>
+                                    <div className="grid grid-cols-4 items-center gap-4">
+                                      <Label htmlFor="requirements" className="text-right">
+                                        任务要求
+                                      </Label>
+                                      <Textarea
+                                          id="requirements"
+                                          value={newAssignment.requirements}
+                                          onChange={(e) => setNewAssignment({ ...newAssignment, requirements: e.target.value })}
+                                          className="col-span-3"
+                                          placeholder="输入任务要求"
+                                          rows={3}
+                                      />
+                                    </div>
+                                  </div>
+                                  <DialogFooter>
+                                    <Button
+                                        type="submit"
+                                        onClick={handlePublishAssignment}
+                                        disabled={publishAssignmentMutation.isPending}
+                                    >
+                                      {publishAssignmentMutation.isPending ? "发布中..." : "发布任务"}
+                                    </Button>
+                                  </DialogFooter>
+                                </DialogContent>
+                              </Dialog>
                           )}
                         </div>
                       </CardContent>
                     </Card>
                 ))}
               </div>
-
-              {/* 分页控件 */}
-              {totalPages > 1 && (
-                  <div className="mt-8">
-                    <Pagination>
-                      <PaginationContent>
-                        <PaginationItem>
-                          <PaginationPrevious
-                              href="#"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                if (currentPage > 0) setCurrentPage(currentPage - 1);
-                              }}
-                              className={currentPage === 0 ? 'opacity-50 cursor-not-allowed' : ''}
-                          />
-                        </PaginationItem>
-
-                        {Array.from({ length: totalPages }, (_, i) => (
-                            <PaginationItem key={i}>
-                              <PaginationLink
-                                  href="#"
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    setCurrentPage(i);
-                                  }}
-                                  isActive={i === currentPage}
-                              >
-                                {i + 1}
-                              </PaginationLink>
-                            </PaginationItem>
-                        ))}
-
-                        <PaginationItem>
-                          <PaginationNext
-                              href="#"
-                              onClick={(e) => {
-                                e.preventDefault();
-                                if (currentPage < totalPages - 1) setCurrentPage(currentPage + 1);
-                              }}
-                              className={currentPage >= totalPages - 1 ? 'opacity-50 cursor-not-allowed' : ''}
-                          />
-                        </PaginationItem>
-                      </PaginationContent>
-                    </Pagination>
-                  </div>
-              )}
+              <Pagination>
+                <PaginationContent>
+                  <PaginationPrevious
+                      href={`?page=${currentPage - 1}`}
+                      onClick={() => setCurrentPage(currentPage - 1)}
+                      disabled={currentPage === 0}
+                  />
+                  {[...Array(totalPages)].map((_, i) => (
+                      <PaginationItem key={i} active={i === currentPage}>
+                        <PaginationLink href={`?page=${i}`} onClick={() => setCurrentPage(i)} isCurrent={i === currentPage}>
+                          {i + 1}
+                        </PaginationLink>
+                      </PaginationItem>
+                  ))}
+                  <PaginationNext
+                      href={`?page=${currentPage + 1}`}
+                      onClick={() => setCurrentPage(currentPage + 1)}
+                      disabled={currentPage === totalPages - 1 || totalPages === 0}
+                  />
+                </PaginationContent>
+              </Pagination>
             </TabsContent>
 
-            {user?.role === "teacher" && (
-                <TabsContent value="published">
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {teacherTasks.length > 0 ? teacherTasks.map(task => (
-                        <Card key={task.id} className="relative">
-                          <div className="aspect-video bg-gray-100 rounded-t-lg overflow-hidden">
-                            <div className="w-full h-full bg-gray-200 flex items-center justify-center">
-                              <FlaskConical className="w-12 h-12 text-gray-400" />
-                            </div>
-                            <div className="absolute top-2 right-2">
-                              <Badge variant="default" className="flex items-center">
-                                <Send className="w-3 h-3 mr-1" />
-                                已发布
-                              </Badge>
-                            </div>
-                          </div>
-                          <CardHeader>
-                            <CardTitle className="text-lg">{task.taskName}</CardTitle>
-                            <CardDescription className="line-clamp-2">{task.requirements}</CardDescription>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="space-y-4">
-                              <div className="flex items-center justify-between">
-                                <div className="flex items-center space-x-1">
-                                  <Clock className="w-4 h-4 text-gray-500" />
-                                  <span className="text-sm text-gray-600">开始: {new Date(task.startTime).toLocaleDateString()}</span>
-
+            {/* 学生任务列表 */}
+            {user?.role === "student" && (
+                <TabsContent value="myTasks" className="space-y-4">
+                  {studentTasks.length > 0 ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {studentTasks.map((task) => (
+                            <Card key={task.id} className="cursor-pointer hover:shadow-md transition-shadow duration-300">
+                              <CardHeader>
+                                <CardTitle>{task.taskName}</CardTitle>
+                                <CardDescription>实验: {task.experimentTitle}</CardDescription>
+                              </CardHeader>
+                              <CardContent className="space-y-3">
+                                <div className="flex justify-between">
+                                  <span className="text-sm font-medium">状态</span>
+                                  <Badge
+                                      variant={
+                                        task.status === "已批改"
+                                            ? "default"
+                                            : task.status === "已提交"
+                                                ? "secondary"
+                                                : "destructive"
+                                      }
+                                  >
+                                    {task.status}
+                                  </Badge>
                                 </div>
-                                <div className="flex items-center space-x-1">
-                                  <Clock className="w-4 h-4 text-gray-500" />
-                                  <span className="text-sm text-gray-600">截止: {new Date(task.endTime).toLocaleDateString()}</span>
+                                <div className="flex justify-between">
+                                  <span className="text-sm text-gray-500">截止时间</span>
+                                  <span className="text-sm text-gray-500">{new Date(task.endTime).toLocaleDateString()}</span>
                                 </div>
-                                <Badge variant={task.status === "已批改" ? "default" : "secondary"} className="text-xs">
-                                  {task.status}
-                                </Badge>
-                              </div>
-
-                              <div className="mt-3">
-                                <h4 className="text-sm font-medium mb-2">班级: {task.className}</h4>
-                              </div>
-
-                              <Button
-                                  variant="outline"
-                                  className="w-full mt-2"
-                                  onClick={() => {
-                                    // 找到对应的实验并设置选中
-                                    const exp = experimentsData.experiments.find(e => e.id === task.experimentId);
-                                    if (exp) setSelectedExperiment(exp);
-                                  }}
-                              >
-                                查看详情
-                              </Button>
-                            </div>
-                          </CardContent>
-                        </Card>
-                    )) : (
-                        <div className="col-span-full text-center py-12">
-                          <List className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                          <h3 className="text-lg font-medium text-gray-900 mb-2">暂无已发布实验</h3>
-                          <p className="text-gray-500">您还没有发布任何实验任务</p>
-                        </div>
-                    )}
-                  </div>
+                                <div className="flex justify-between">
+                                  {/* 查看任务详情 */}
+                                  <Button size="sm" variant="outline" onClick={() => handleViewTaskDetails(task)}>
+                                    查看任务详情
+                                  </Button>
+                                  {/* 继续实验 */}
+                                  {task.status === "进行中" && (
+                                      <Button size="sm" variant="secondary" onClick={() => handleContinueExperiment(task)}>
+                                        继续实验
+                                      </Button>
+                                  )}
+                                </div>
+                              </CardContent>
+                            </Card>
+                        ))}
+                      </div>
+                  ) : (
+                      <p className="text-gray-500">暂无任务</p>
+                  )}
                 </TabsContent>
             )}
 
-            {user?.role === "student" && (
-                <TabsContent value="assigned">
-                  {studentTasks.length === 0 ? (
-                      <div className="text-center py-12">
-                        <List className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                        <h3 className="text-lg font-medium text-gray-900 mb-2">暂无指派实验</h3>
-                        <p className="text-gray-500">等待老师发布实验任务</p>
+            {/* 教师已发布任务列表 */}
+            {(user?.role === "teacher" || user?.role === "admin") && (
+                <TabsContent value="teacherTasks" className="space-y-4">
+                  {teacherTasks.length > 0 ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                        {teacherTasks.map((task) => (
+                            <Card key={task.id} className="cursor-pointer hover:shadow-md transition-shadow duration-300">
+                              <CardHeader>
+                                <CardTitle>{task.taskName}</CardTitle>
+                                <CardDescription>实验: {task.experimentTitle}</CardDescription>
+                              </CardHeader>
+                              <CardContent className="space-y-3">
+                                <div className="flex justify-between">
+                                  <span className="text-sm font-medium">班级</span>
+                                  <span className="text-sm text-gray-500">{task.className}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                  <span className="text-sm text-gray-500">截止时间</span>
+                                  <span className="text-sm text-gray-500">{new Date(task.endTime).toLocaleDateString()}</span>
+                                </div>
+                                <Button size="sm" variant="outline" onClick={() => handleViewTaskDetails(task)}>
+                                  查看任务详情
+                                </Button>
+                              </CardContent>
+                            </Card>
+                        ))}
                       </div>
                   ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {studentTasks.map((task) => {
-                          // 找到对应的实验
-                          const experiment = experimentsData.experiments.find(e => e.id === task.experimentId);
-
-                          return (
-                              <Card
-                                  key={task.id}
-                                  className="cursor-pointer hover:shadow-lg transition-shadow"
-                                  onClick={() => {
-                                    if (experiment) handleSelectExperiment(experiment);
-                                  }}
-                              >
-                                {experiment && (
-                                    <div className="aspect-video bg-gray-100 rounded-t-lg overflow-hidden">
-                                      <div className="w-full h-full bg-gray-200 flex items-center justify-center">
-                                        <FlaskConical className="w-12 h-12 text-gray-400" />
-                                      </div>
-                                    </div>
-                                )}
-                                <CardHeader>
-                                  <CardTitle className="text-lg">{task.taskName}</CardTitle>
-                                  {experiment && (
-                                      <CardDescription className="line-clamp-2">{experiment.description}</CardDescription>
-                                  )}
-                                </CardHeader>
-                                <CardContent>
-                                  <div className="space-y-4">
-                                    <div className="flex items-center justify-between">
-                                      <div className="flex items-center space-x-1">
-                                        <Clock className="w-4 h-4 text-gray-500" />
-                                        <span className="text-sm text-gray-600">截止: {new Date(task.endTime).toLocaleDateString()}</span>
-                                      </div>
-                                      <Badge variant={
-                                        task.status === "已批改" ? "default" :
-                                            task.status === "已提交" ? "secondary" : "destructive"
-                                      }>
-                                        {task.status}
-                                      </Badge>
-                                    </div>
-
-                                    {experiment && (
-                                        <div className="flex items-center space-x-1 mt-2">
-                                          {getCategoryIcon(experiment.category)}
-                                          <span className="text-sm text-gray-600">{experiment.category}</span>
-                                        </div>
-                                    )}
-
-                                    <Button
-                                        className="w-full mt-4"
-                                        onClick={() => {
-                                          if (experiment) setSelectedExperiment(experiment);
-                                        }}
-                                    >
-                                      {task.status === "未开始" ? "开始实验" : "继续实验"}
-                                    </Button>
-                                  </div>
-                                </CardContent>
-                              </Card>
-                          );
-                        })}
-                      </div>
+                      <p className="text-gray-500">暂无已发布的任务</p>
                   )}
                 </TabsContent>
             )}
