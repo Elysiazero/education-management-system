@@ -2038,8 +2038,11 @@ function VirtualLabPage() {
                                         选择学生
                                       </Label>
                                       <Select
-                                          value={newAssignment.studentId}
-                                          onChange={(value) => setNewAssignment({ ...newAssignment, studentId: value })}
+                                          value={String(newAssignment.studentId)} // 确保转换为字符串
+                                          onValueChange={(value) => setNewAssignment({
+                                            ...newAssignment,
+                                            studentId: value // 或者 Number(value) 如果需要数字类型
+                                          })}
                                           disabled={!newAssignment.classId}
                                       >
                                         <SelectTrigger className="col-span-3">
@@ -2113,20 +2116,28 @@ function VirtualLabPage() {
                 <PaginationContent>
                   <PaginationPrevious
                       href={`?page=${currentPage - 1}`}
-                      onClick={() => setCurrentPage(currentPage - 1)}
-                      disabled={currentPage === 0}
+                      onClick={() => setCurrentPage(Math.max(0, currentPage - 1))}
+                      aria-disabled={currentPage === 0 ? "true" : "false"} // 修复1: 使用 aria-disabled
+                      className={currentPage === 0 ? "opacity-50 cursor-not-allowed" : ""} // 修复2: 添加视觉禁用效果
                   />
+
                   {[...Array(totalPages)].map((_, i) => (
-                      <PaginationItem key={i} active={i === currentPage}>
-                        <PaginationLink href={`?page=${i}`} onClick={() => setCurrentPage(i)} isCurrent={i === currentPage}>
+                      <PaginationItem key={i}>
+                        <PaginationLink
+                            href={`?page=${i}`}
+                            onClick={() => setCurrentPage(i)}
+                            isActive={i === currentPage}  // 修复这里
+                        >
                           {i + 1}
                         </PaginationLink>
                       </PaginationItem>
                   ))}
+
                   <PaginationNext
                       href={`?page=${currentPage + 1}`}
-                      onClick={() => setCurrentPage(currentPage + 1)}
-                      disabled={currentPage === totalPages - 1 || totalPages === 0}
+                      onClick={() => setCurrentPage(Math.min(totalPages - 1, currentPage + 1))}
+                      aria-disabled={currentPage >= totalPages - 1 || totalPages === 0 ? "true" : "false"}
+                      className={currentPage >= totalPages - 1 || totalPages === 0 ? "opacity-50 cursor-not-allowed" : ""}
                   />
                 </PaginationContent>
               </Pagination>
