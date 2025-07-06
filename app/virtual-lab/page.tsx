@@ -235,13 +235,13 @@ const normalizeAssignment = (task: any): Assignment => {
   return {
     id: String(task.id),
     taskName: task.taskName || "未命名任务",
-    className: task.className || "未知班级",
-    classId: String(task.classId || ""),
-    experimentId: String(task.experimentId || task.experiment?.id || ""),
-    experimentTitle: task.experiment?.title || "未知实验",
+    className: task.classInfo?.name || "未知班级", // 修正为 classInfo.name
+    classId: String(task.classInfo?.id || ""), // 修正为 classInfo.id
+    experimentId: String(task.experiment?.id || ""), // 修正为 experiment.id
+    experimentTitle: task.experiment?.title || "未知实验", // 修正为 experiment.title
     startTime: task.startTime || new Date().toISOString(),
     endTime: task.endTime || new Date().toISOString(),
-    requirements: task.taskRequirements || task.requirements || "",
+    requirements: task.taskRequirements || "", // 修正为 taskRequirements
     status: mapTaskStatus(task.status),
     assignedTo: task.assignedTo || [],
     submittedAt: task.submittedAt,
@@ -336,12 +336,11 @@ const getExperimentById = async (id: string): Promise<Experiment> => {
   if (!response.ok) throw new Error("获取实验详情失败")
 
   const responseData = await response.json()
-  const rawData = responseData?.data
 
-  if (!rawData) {
-    throw new Error(`无法找到ID为 ${id} 的实验`)
+  if (!responseData.data) {
+    throw new Error(`无法找到ID为 ${id} 的实验`);
   }
-  return normalizeExperiment(rawData)
+  return normalizeExperiment(responseData.data)
 }
 
 // 创建新实验
@@ -1203,13 +1202,18 @@ function VirtualLabPage() {
   }
 
   // 处理查看任务详情
-  const handleViewTaskDetails = (task: Assignment) => {
-    // 找到对应的实验
-    const experiment = experimentsData.experiments.find((e) => e.id === task.experimentId)
-    if (experiment) {
-      handleSelectExperiment(experiment, task)
-    } else {
-      alert("找不到对应的实验信息")
+  const handleViewTaskDetails = async (task: Assignment) => {
+    try {
+      // 直接通过API获取实验详情，而不是从本地缓存查找
+      const experiment = await getExperimentById(task.experimentId);
+      if (experiment) {
+        handleSelectExperiment(experiment, task);
+      } else {
+        alert("找不到对应的实验信息");
+      }
+    } catch (error) {
+      console.error("获取实验详情失败:", error);
+      alert("获取实验详情失败，请重试");
     }
   }
 
