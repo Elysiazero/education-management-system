@@ -698,30 +698,7 @@ export default function TrainingProjectsPage() {
       if (commentsResponse.ok) {
         commentsData = await commentsResponse.json();
         console.log("项目评论:", commentsData);
-
-        // Fetch user details for each comment
-        const commentsWithUserDetails = await Promise.all(
-            commentsData.map(async (comment: any) => {
-              try {
-                const userResponse = await fetch(`${USER_API_BASE_URL}/me/${comment.userId}`, {
-                  headers: { Authorization: `Bearer ${token}` }
-                });
-                if (userResponse.ok) {
-
-                  const userData = await userResponse.json();
-                  console.log(userData);
-                  return { ...comment, author: { id: userData.id, realName: userData.realName || userData.username } };
-                } else {
-                  console.warn(`Failed to fetch user details for userId ${comment.userId}:`, userResponse.statusText);
-                  return { ...comment, author: { id: comment.userId, realName: '未知用户' } };
-                }
-              } catch (error) {
-                console.error(`Error fetching user details for userId ${comment.userId}:`, error);
-                return { ...comment, author: { id: comment.userId, realName: '未知用户' } };
-              }
-            })
-        );
-        setComments(commentsWithUserDetails);
+        setComments(commentsData);
       }
 
       // =================== 关键修复部分开始 ===================
@@ -1035,7 +1012,7 @@ export default function TrainingProjectsPage() {
           priority: priority,
           assigneeType: assigneeType,
           ...(assigneeType === "USER" && { assigneeId: selectedAssigneeId }),
-          ...(assigneeType === "TEAM" && { assigneeId: selectedAssigneeId }),
+          ...(assigneeType === "TEAM" && { assignedToTeamId: selectedAssigneeId }),
         })
       });
 
@@ -1202,18 +1179,7 @@ export default function TrainingProjectsPage() {
       const newComment = await response.json();
       console.log("添加的评论响应数据:", newComment);
 
-      // 确保新评论包含完整的作者信息，以便前端正确显示
-      const commentWithAuthor = {
-        ...newComment,
-        author: {
-          id: user.id,
-          realName: user.realName,
-          username: user.username,
-          avatarUrl: user.avatarUrl,
-        },
-      };
-
-      setComments([...comments, commentWithAuthor]);
+      setComments([...comments, newComment]);
       setNewCommentContent('');
     } catch (err: any) {
       console.error("添加评论失败:", err);
@@ -1910,7 +1876,7 @@ export default function TrainingProjectsPage() {
                                 <p className="text-sm text-gray-600 mb-2">{task.description}</p>
                                 <div className="flex items-center space-x-4 text-xs text-gray-500">
                                   <span>截止: {new Date(task.dueDate).toLocaleDateString()}</span>
-                                  {(task.assigneeType === "USER" && task.assigneeId) || (task.assigneeType === "TEAM" && task.assigneeId) ? (
+                                  {(task.assigneeType === "USER" && task.assigneeId) || (task.assigneeType === "TEAM" && task.assignedToTeamId) ? (
                                       <span>
               负责人: {displayAssigneeName}
             </span>
@@ -2013,19 +1979,19 @@ export default function TrainingProjectsPage() {
                       ) : (
                           comments.map(comment => {
                             // 使用 authorId 查找作者信息
-                            // const author = classMembers.find(m => m.id === comment.authorId);
+                            const author = classMembers.find(m => m.id === comment.authorId);
 
                             return (
                                 <div key={comment.id} className="flex items-start space-x-3">
                                   <Avatar className="w-8 h-8">
                                     <AvatarFallback>
-                                      {comment.author?.realName?.charAt(0).toUpperCase() || "U"}
+                                      {author?.realName?.charAt(0).toUpperCase() || "U"}
                                     </AvatarFallback>
                                   </Avatar>
                                   <div className="flex-1 bg-gray-100 p-3 rounded-lg">
                                     <div className="flex items-center justify-between mb-1">
                     <span className="font-medium text-gray-800">
-                      {comment.author?.realName || "未知用户"}
+                      {author?.realName || "未知用户"}
                     </span>
                                       <span className="text-xs text-gray-500">
                       {new Date(comment.createdAt).toLocaleString()}
