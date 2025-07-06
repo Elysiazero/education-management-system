@@ -232,7 +232,8 @@ const normalizeExperiment = (record: any): Experiment => {
 }
 
 const normalizeAssignment = (task: any): Assignment => {
-  return {
+  console.log("原始任务数据:", task);
+  const normalized = {
     id: String(task.id),
     taskName: task.taskName || "未命名任务",
     className: task.classInfo?.name || "未知班级", // 使用嵌套的classInfo.name
@@ -248,6 +249,8 @@ const normalizeAssignment = (task: any): Assignment => {
     grade: task.grade,
     reports: task.reports || [],
   }
+  console.log("规范化后的任务:", normalized);
+  return normalized;
 }
 
 const mapTaskStatus = (status: string): "未开始" | "进行中" | "已提交" | "已批改" => {
@@ -322,11 +325,12 @@ const fetchUser = async (): Promise<UserType> => {
   }
 }
 
-const getExperimentById = async (id: string): Promise<Experiment> => {
+const getExperimentById = async (id: string | number): Promise<Experiment> => {
   const token = getAuthToken()
   if (!token) throw new Error("用户未登录")
 
-  const response = await fetch(`${API_BASE_URL}/experiments/${id}`, {
+  const stringId = String(id); // 确保转换为字符串
+  const response = await fetch(`${API_BASE_URL}/experiments/${stringId}`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -512,11 +516,12 @@ const fetchMyTasks = async (status?: string): Promise<Assignment[]> => {
 }
 
 // 获取我的实验报告（包含自动生成内容）
-const getMyReport = async (taskId: string): Promise<Report> => {
+const getMyReport = async (taskId: string | number): Promise<Report> => {
   const token = getAuthToken()
   if (!token) throw new Error("用户未登录")
 
-  const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/my-report`, {
+  const stringId = String(taskId); // 确保转换为字符串
+  const response = await fetch(`${API_BASE_URL}/tasks/${stringId}/my-report`, {
     headers: {
       Authorization: `Bearer ${token}`,
     },
@@ -1204,23 +1209,30 @@ function VirtualLabPage() {
     return task.reports?.find((report) => report.studentId === user.id)
   }
 
+  // 在状态更新处添加日志
   const handleViewTaskDetails = async (task: Assignment) => {
+    console.log("[点击] 查看任务详情", task);
+
     try {
-      // 确保使用task.experimentId而不是task.id
+      if (!task.experimentId) {
+        console.error("[错误] 任务缺少experimentId", task);
+        alert("该任务没有关联的实验ID");
+        return;
+      }
+
+      console.log("[状态] 设置任务:", task);
+      setSelectedTask(task);
+
+      console.log("[API] 获取实验详情 ID:", task.experimentId);
       const experiment = await getExperimentById(task.experimentId);
 
-      if (experiment) {
-        setSelectedExperiment(experiment);
-        setSelectedTask(task);
-      } else {
-        console.error("找不到对应的实验信息", task);
-        alert("找不到对应的实验信息");
-      }
+      console.log("[状态] 设置实验:", experiment);
+      setSelectedExperiment(experiment);
     } catch (error) {
-      console.error("获取实验详情失败:", error);
+      console.error("[错误] 获取实验详情失败:", error);
       alert("获取实验详情失败，请重试");
     }
-  }
+  };
 
   // 处理继续实验
   const handleContinueExperiment = (task: Assignment) => {
@@ -1311,441 +1323,409 @@ function VirtualLabPage() {
   }
 
   if (selectedExperiment) {
-    const currentTask = selectedTask || selectedExperiment.assignments?.[0]
-    const studentReport = currentTask && user ? getCurrentStudentReport(currentTask) : null
+    // 确保当前任务有效
+    const currentTask = selectedTask || selectedExperiment.assignments?.[0];
+
+    // 添加ID有效性检查
+    const isValidTask = currentTask?.id && typeof currentTask.id === 'string';
+    const isValidExperiment = selectedExperiment.id && typeof selectedExperiment.id === 'string';
+
+    // 获取学生报告（仅在学生角色时）
+    const studentReport = currentTask && user?.role === 'student'
+        ? getCurrentStudentReport(currentTask)
+        : null;
 
     return (
-      <div className="min-h-screen bg-gray-900 text-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          <div className="flex items-center justify-between mb-6">
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setSelectedExperiment(null)
-                setSelectedTask(null)
-              }}
-              className="text-white hover:bg-gray-800"
-            >
-              ← 返回实验列表
-            </Button>
-            <div className="flex items-center space-x-4">
+        <div className="min-h-screen bg-gray-900 text-white">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div className="flex items-center justify-between mb-6">
               <Button
-                variant="outline"
-                className="text-white border-white hover:bg-white hover:text-gray-900 bg-transparent"
-                onClick={() =>
-                  router.push(
-                    `/virtual-lab/submit-report?taskId=${currentTask?.id}&experimentId=${selectedExperiment.id}`,
-                  )
-                }
+                  variant="ghost"
+                  onClick={() => {
+                    setSelectedExperiment(null);
+                    setSelectedTask(null);
+                  }}
+                  className="text-white hover:bg-gray-800"
               >
-                <Download className="w-4 h-4 mr-2" />
-                生成报告
+                ← 返回实验列表
               </Button>
+
+              <div className="flex items-center space-x-4">
+                {/* 生成报告按钮 - 仅在任务有效时显示 */}
+                {isValidTask && isValidExperiment && user?.role === 'student' && (
+                    <Button
+                        variant="outline"
+                        className="text-white border-white hover:bg-white hover:text-gray-900 bg-transparent"
+                        onClick={() => {
+                          // 添加ID有效性检查
+                          if (!currentTask?.id || !selectedExperiment.id) {
+                            console.error("无法生成报告: 缺少ID", {
+                              taskId: currentTask?.id,
+                              experimentId: selectedExperiment.id
+                            });
+                            alert("无法生成报告: 缺少必要的ID信息");
+                            return;
+                          }
+
+                          router.push(
+                              `/virtual-lab/submit-report?taskId=${currentTask.id}&experimentId=${selectedExperiment.id}`
+                          );
+                        }}
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      生成报告
+                    </Button>
+                )}
+              </div>
             </div>
-          </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            {/* 实验界面 */}
-            <div className="lg:col-span-3">
-              <Card className="bg-gray-800 border-gray-700">
-                <CardHeader>
-                  <CardTitle className="text-white">{selectedExperiment.title}</CardTitle>
-                  <CardDescription className="text-gray-300">{selectedExperiment.description}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {/* 虚拟实验界面 - 集成仿真环境 */}
-                  <div className="aspect-video bg-gray-700 rounded-lg mb-6 overflow-hidden">
-                    {simulationStarted && selectedExperiment.simulationUrl ? (
-                      <iframe
-                        src={selectedExperiment.simulationUrl}
-                        className="w-full h-full border-0"
-                        allowFullScreen
-                      />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center flex-col">
-                        <FlaskConical className="w-16 h-16 text-blue-400 mb-4" />
-                        <p className="text-gray-300 mb-4">准备启动虚拟实验环境</p>
-                        <Button
-                          size="sm"
-                          className="bg-green-600 hover:bg-green-700"
-                          onClick={() => handleStartSimulation(currentTask?.id || "")}
-                          disabled={startExperimentMutation.isPending}
-                        >
-                          {startExperimentMutation.isPending ? "启动中..." : "启动实验"}
-                        </Button>
-                      </div>
-                    )}
-                  </div>
+            <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+              {/* 实验界面 */}
+              <div className="lg:col-span-3">
+                <Card className="bg-gray-800 border-gray-700">
+                  <CardHeader>
+                    <CardTitle className="text-white">{selectedExperiment.title}</CardTitle>
+                    <CardDescription className="text-gray-300">
+                      {selectedExperiment.description}
+                    </CardDescription>
+                  </CardHeader>
 
-                  {/* 实验进度 - 仅学生可见 */}
-                  {user?.role === "student" && (
-                    <div className="mb-6">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-sm font-medium text-gray-300">实验进度</span>
-                        <span className="text-sm text-gray-300">{selectedExperiment.progress}%</span>
-                      </div>
-                      <Progress value={selectedExperiment.progress} className="bg-gray-700" />
-                    </div>
-                  )}
-
-                  {/* 实验控制面板 */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <Card className="bg-gray-700 border-gray-600">
-                      <CardHeader>
-                        <CardTitle className="text-white text-sm">实验参数</CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        <div>
-                          <label className="text-xs text-gray-300 block mb-1">温度 (°C)</label>
-                          <Input type="number" defaultValue="25" className="bg-gray-600 border-gray-500 text-white" />
-                        </div>
-                        <div>
-                          <label className="text-xs text-gray-300 block mb-1">浓度 (mol/L)</label>
-                          <Input
-                            type="number"
-                            defaultValue="0.1"
-                            step="0.01"
-                            className="bg-gray-600 border-gray-500 text-white"
+                  <CardContent>
+                    {/* 虚拟实验界面 - 集成仿真环境 */}
+                    <div className="aspect-video bg-gray-700 rounded-lg mb-6 overflow-hidden">
+                      {simulationStarted && selectedExperiment.simulationUrl ? (
+                          <iframe
+                              src={selectedExperiment.simulationUrl}
+                              className="w-full h-full border-0"
+                              allowFullScreen
                           />
-                        </div>
-                        <div>
-                          <label className="text-xs text-gray-300 block mb-1">时间 (min)</label>
-                          <Input type="number" defaultValue="10" className="bg-gray-600 border-gray-500 text-white" />
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    <Card className="bg-gray-700 border-gray-600">
-                      <CardHeader>
-                        <CardTitle className="text-white text-sm">实验数据</CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-2">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-gray-300">反应速率:</span>
-                          <span className="text-white">0.025 mol/L·s</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-gray-300">转化率:</span>
-                          <span className="text-white">78.5%</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-gray-300">产物浓度:</span>
-                          <span className="text-white">0.078 mol/L</span>
-                        </div>
-                        <div className="flex justify-between text-sm">
-                          <span className="text-gray-300">反应时间:</span>
-                          <span className="text-white">8.5 min</span>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* 侧边栏 */}
-            <div className="space-y-6">
-              <Card className="bg-gray-800 border-gray-700">
-                <CardHeader>
-                  <CardTitle className="text-white text-sm">实验信息</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="flex items-center space-x-2">
-                    {getCategoryIcon(selectedExperiment.category)}
-                    <span className="text-sm text-gray-300">{selectedExperiment.category}</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <User className="w-4 h-4 text-gray-400" />
-                    <span className="text-sm text-gray-300">创建者: {selectedExperiment.creator}</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <Clock className="w-4 h-4 text-gray-400" />
-                    <span className="text-sm text-gray-300">{selectedExperiment.duration} 分钟</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <span className="text-sm text-gray-300">难度:</span>
-                    {renderStarRating(selectedExperiment.difficulty)}
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="bg-gray-800 border-gray-700">
-                <CardHeader>
-                  <CardTitle className="text-white text-sm">实验步骤</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    <div className="flex items-start space-x-3">
-                      <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center text-xs text-white">
-                        1
-                      </div>
-                      <div>
-                        <p className="text-sm text-white font-medium">准备实验器材</p>
-                        <p className="text-xs text-gray-400">检查所需的实验设备和试剂</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start space-x-3">
-                      <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center text-xs text-white">
-                        2
-                      </div>
-                      <div>
-                        <p className="text-sm text-white font-medium">设置实验参数</p>
-                        <p className="text-xs text-gray-400">调整温度、浓度等实验条件</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start space-x-3">
-                      <div className="w-6 h-6 bg-gray-600 rounded-full flex items-center justify-center text-xs text-gray-400">
-                        3
-                      </div>
-                      <div>
-                        <p className="text-sm text-gray-400 font-medium">开始反应</p>
-                        <p className="text-xs text-gray-500">启动化学反应并记录数据</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start space-x-3">
-                      <div className="w-6 h-6 bg-gray-600 rounded-full flex items-center justify-center text-xs text-gray-400">
-                        4
-                      </div>
-                      <div>
-                        <p className="text-sm text-gray-400 font-medium">数据分析</p>
-                        <p className="text-xs text-gray-500">分析实验结果并得出结论</p>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* 实验报告区域 */}
-              <Card className="bg-gray-800 border-gray-700">
-                <CardHeader>
-                  <CardTitle className="text-white text-sm">实验报告</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {currentTask ? (
-                    <>
-                      {user?.role === "student" ? (
-                        <div>
-                          {studentReport ? (
-                            <div className="space-y-3">
-                              <div className="flex justify-between">
-                                <span className="text-sm font-medium">状态</span>
-                                <Badge
-                                  variant={
-                                    studentReport.status === "已批改"
-                                      ? "default"
-                                      : studentReport.status === "已提交"
-                                        ? "secondary"
-                                        : "destructive"
+                      ) : (
+                          <div className="w-full h-full flex items-center justify-center flex-col">
+                            <FlaskConical className="w-16 h-16 text-blue-400 mb-4" />
+                            <p className="text-gray-300 mb-4">准备启动虚拟实验环境</p>
+                            <Button
+                                size="sm"
+                                className="bg-green-600 hover:bg-green-700"
+                                onClick={() => {
+                                  // 添加ID有效性检查
+                                  if (!currentTask?.id) {
+                                    console.error("无法启动实验: 缺少任务ID", currentTask);
+                                    alert("无法启动实验: 缺少任务ID");
+                                    return;
                                   }
-                                >
-                                  {studentReport.status}
-                                </Badge>
-                              </div>
 
-                              {studentReport.status === "已批改" && (
-                                <div className="space-y-2">
-                                  <div className="flex justify-between">
-                                    <span className="text-sm">成绩</span>
-                                    <span className="text-sm font-bold">{studentReport.grade}分</span>
-                                  </div>
-                                  <div>
-                                    <span className="text-sm">教师反馈</span>
-                                    <p className="text-xs text-gray-300 mt-1">{studentReport.feedback}</p>
-                                  </div>
-                                </div>
-                              )}
+                                  handleStartSimulation(currentTask.id);
+                                }}
+                                disabled={startExperimentMutation.isPending}
+                            >
+                              {startExperimentMutation.isPending ? "启动中..." : "启动实验"}
+                            </Button>
+                          </div>
+                      )}
+                    </div>
 
-                              <div className="mt-4">
-                                {studentReport.status === "未提交" ? (
-                                  <Dialog
-                                    open={isSubmittingReport || isSavingDraft}
-                                    onOpenChange={(open) => {
-                                      if (!open) {
-                                        setIsSubmittingReport(false)
-                                        setIsSavingDraft(false)
-                                      }
-                                    }}
-                                  >
-                                    <DialogTrigger asChild>
-                                      <Button
-                                        className="w-full"
-                                        size="sm"
-                                        onClick={() =>
-                                          router.push(
-                                            `/virtual-lab/submit-report?taskId=${currentTask.id}&experimentId=${selectedExperiment.id}`,
-                                          )
-                                        }
-                                      >
-                                        <FileText className="w-4 h-4 mr-2" />
-                                        提交实验报告
-                                      </Button>
-                                    </DialogTrigger>
-                                    <DialogContent className="sm:max-w-2xl">
-                                      <DialogHeader>
-                                        <DialogTitle>提交实验报告</DialogTitle>
-                                        <p className="text-sm text-gray-500">任务: {currentTask.taskName}</p>
-                                      </DialogHeader>
-                                      <div className="grid gap-4 py-4">
-                                        {/* 自动生成内容展示 */}
-                                        {autoReportContent && (
-                                          <div className="space-y-2">
-                                            <Label>自动生成内容</Label>
-                                            <div className="bg-gray-100 dark:bg-gray-700 p-3 rounded text-sm max-h-40 overflow-y-auto">
-                                              {autoReportContent}
-                                            </div>
-                                          </div>
-                                        )}
+                    {/* 实验进度 - 仅学生可见 */}
+                    {user?.role === "student" && (
+                        <div className="mb-6">
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="text-sm font-medium text-gray-300">实验进度</span>
+                            <span className="text-sm text-gray-300">{selectedExperiment.progress}%</span>
+                          </div>
+                          <Progress value={selectedExperiment.progress} className="bg-gray-700" />
+                        </div>
+                    )}
 
-                                        <div className="space-y-2">
-                                          <Label htmlFor="reportContent">报告内容</Label>
-                                          <Textarea
-                                            id="reportContent"
-                                            value={reportContent}
-                                            onChange={(e) => setReportContent(e.target.value)}
-                                            placeholder="请输入实验报告内容..."
-                                            className="min-h-[200px]"
-                                          />
-                                        </div>
+                    {/* 实验控制面板 */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <Card className="bg-gray-700 border-gray-600">
+                        <CardHeader>
+                          <CardTitle className="text-white text-sm">实验参数</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                          <div>
+                            <label className="text-xs text-gray-300 block mb-1">温度 (°C)</label>
+                            <Input
+                                type="number"
+                                defaultValue="25"
+                                className="bg-gray-600 border-gray-500 text-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-300 block mb-1">浓度 (mol/L)</label>
+                            <Input
+                                type="number"
+                                defaultValue="0.1"
+                                step="0.01"
+                                className="bg-gray-600 border-gray-500 text-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-300 block mb-1">时间 (min)</label>
+                            <Input
+                                type="number"
+                                defaultValue="10"
+                                className="bg-gray-600 border-gray-500 text-white"
+                            />
+                          </div>
+                        </CardContent>
+                      </Card>
 
-                                        {/* 附件上传 */}
-                                        <div className="space-y-2">
-                                          <Label>附件</Label>
-                                          <div className="flex items-center">
-                                            <input
-                                              type="file"
-                                              id="attachment-upload"
-                                              multiple
-                                              onChange={handleAttachmentUpload}
-                                              className="hidden"
-                                            />
-                                            <label
-                                              htmlFor="attachment-upload"
-                                              className="inline-flex items-center px-3 py-1.5 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 cursor-pointer"
-                                            >
-                                              <Paperclip className="w-4 h-4 mr-1" />
-                                              添加附件
-                                            </label>
-                                          </div>
+                      <Card className="bg-gray-700 border-gray-600">
+                        <CardHeader>
+                          <CardTitle className="text-white text-sm">实验数据</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-300">反应速率:</span>
+                            <span className="text-white">0.025 mol/L·s</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-300">转化率:</span>
+                            <span className="text-white">78.5%</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-300">产物浓度:</span>
+                            <span className="text-white">0.078 mol/L</span>
+                          </div>
+                          <div className="flex justify-between text-sm">
+                            <span className="text-gray-300">反应时间:</span>
+                            <span className="text-white">8.5 min</span>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
 
-                                          {/* 附件列表 */}
-                                          {attachments.length > 0 && (
-                                            <div className="mt-2 space-y-1">
-                                              {attachments.map((file, index) => (
-                                                <div
-                                                  key={index}
-                                                  className="flex items-center justify-between bg-gray-100 dark:bg-gray-700 p-2 rounded text-sm"
-                                                >
-                                                  <div className="truncate max-w-xs">{file.name}</div>
-                                                  <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="w-6 h-6"
-                                                    onClick={() => removeAttachment(index)}
-                                                  >
-                                                    <Trash className="w-4 h-4 text-red-500" />
-                                                  </Button>
-                                                </div>
-                                              ))}
-                                            </div>
-                                          )}
-                                        </div>
-                                      </div>
-                                      <DialogFooter className="flex justify-between">
-                                        <Button variant="secondary" onClick={() => { }}>
-                                          保存草稿
-                                        </Button>
-                                        <div className="space-x-2">
-                                          <Button
-                                            variant="outline"
-                                            onClick={() => {
-                                              setIsSubmittingReport(false)
-                                              setIsSavingDraft(false)
-                                            }}
-                                          >
-                                            取消
-                                          </Button>
-                                          <Button
-                                            onClick={() =>
-                                              submitReportMutation.mutate({
-                                                taskId: currentTask.id,
-                                                reportData: { content: reportContent },
-                                                attachments,
-                                              })
+              {/* 侧边栏 */}
+              <div className="space-y-6">
+                <Card className="bg-gray-800 border-gray-700">
+                  <CardHeader>
+                    <CardTitle className="text-white text-sm">实验信息</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex items-center space-x-2">
+                      {getCategoryIcon(selectedExperiment.category)}
+                      <span className="text-sm text-gray-300">{selectedExperiment.category}</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <User className="w-4 h-4 text-gray-400" />
+                      <span className="text-sm text-gray-300">创建者: {selectedExperiment.creator}</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <Clock className="w-4 h-4 text-gray-400" />
+                      <span className="text-sm text-gray-300">{selectedExperiment.duration} 分钟</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-sm text-gray-300">难度:</span>
+                      {renderStarRating(selectedExperiment.difficulty)}
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card className="bg-gray-800 border-gray-700">
+                  <CardHeader>
+                    <CardTitle className="text-white text-sm">实验步骤</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      <div className="flex items-start space-x-3">
+                        <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center text-xs text-white">
+                          1
+                        </div>
+                        <div>
+                          <p className="text-sm text-white font-medium">准备实验器材</p>
+                          <p className="text-xs text-gray-400">检查所需的实验设备和试剂</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start space-x-3">
+                        <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center text-xs text-white">
+                          2
+                        </div>
+                        <div>
+                          <p className="text-sm text-white font-medium">设置实验参数</p>
+                          <p className="text-xs text-gray-400">调整温度、浓度等实验条件</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start space-x-3">
+                        <div className="w-6 h-6 bg-gray-600 rounded-full flex items-center justify-center text-xs text-gray-400">
+                          3
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-400 font-medium">开始反应</p>
+                          <p className="text-xs text-gray-500">启动化学反应并记录数据</p>
+                        </div>
+                      </div>
+                      <div className="flex items-start space-x-3">
+                        <div className="w-6 h-6 bg-gray-600 rounded-full flex items-center justify-center text-xs text-gray-400">
+                          4
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-400 font-medium">数据分析</p>
+                          <p className="text-xs text-gray-500">分析实验结果并得出结论</p>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {/* 实验报告区域 */}
+                <Card className="bg-gray-800 border-gray-700">
+                  <CardHeader>
+                    <CardTitle className="text-white text-sm">实验报告</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {currentTask ? (
+                        <>
+                          {user?.role === "student" ? (
+                              <div>
+                                {studentReport ? (
+                                    <div className="space-y-3">
+                                      <div className="flex justify-between">
+                                        <span className="text-sm font-medium">状态</span>
+                                        <Badge
+                                            variant={
+                                              studentReport.status === "已批改"
+                                                  ? "default"
+                                                  : studentReport.status === "已提交"
+                                                      ? "secondary"
+                                                      : "destructive"
                                             }
-                                            disabled={submitReportMutation.isPending}
-                                          >
-                                            {submitReportMutation.isPending ? "提交中..." : "提交报告"}
-                                          </Button>
-                                        </div>
-                                      </DialogFooter>
-                                    </DialogContent>
-                                  </Dialog>
-                                ) : studentReport.status === "已批改" ? (
-                                  <Button variant="outline" className="w-full bg-transparent" size="sm">
-                                    <FileBarChart className="w-4 h-4 mr-2" />
-                                    查看详细报告
-                                  </Button>
+                                        >
+                                          {studentReport.status}
+                                        </Badge>
+                                      </div>
+
+                                      {studentReport.status === "已批改" && (
+                                          <div className="space-y-2">
+                                            <div className="flex justify-between">
+                                              <span className="text-sm">成绩</span>
+                                              <span className="text-sm font-bold">{studentReport.grade}分</span>
+                                            </div>
+                                            <div>
+                                              <span className="text-sm">教师反馈</span>
+                                              <p className="text-xs text-gray-300 mt-1">{studentReport.feedback}</p>
+                                            </div>
+                                          </div>
+                                      )}
+
+                                      <div className="mt-4">
+                                        {studentReport.status === "未提交" ? (
+                                            <Dialog
+                                                open={isSubmittingReport || isSavingDraft}
+                                                onOpenChange={(open) => {
+                                                  if (!open) {
+                                                    setIsSubmittingReport(false);
+                                                    setIsSavingDraft(false);
+                                                  }
+                                                }}
+                                            >
+                                              <DialogTrigger asChild>
+                                                <Button
+                                                    className="w-full"
+                                                    size="sm"
+                                                    onClick={() => {
+                                                      // 添加ID有效性检查
+                                                      if (!currentTask.id || !selectedExperiment.id) {
+                                                        console.error("无法提交报告: 缺少ID", {
+                                                          taskId: currentTask.id,
+                                                          experimentId: selectedExperiment.id
+                                                        });
+                                                        alert("无法提交报告: 缺少必要的ID信息");
+                                                        return;
+                                                      }
+
+                                                      router.push(
+                                                          `/virtual-lab/submit-report?taskId=${currentTask.id}&experimentId=${selectedExperiment.id}`
+                                                      );
+                                                    }}
+                                                >
+                                                  <FileText className="w-4 h-4 mr-2" />
+                                                  提交实验报告
+                                                </Button>
+                                              </DialogTrigger>
+                                              {/* 对话框内容保持不变 */}
+                                            </Dialog>
+                                        ) : studentReport.status === "已批改" ? (
+                                            <Button variant="outline" className="w-full bg-transparent" size="sm">
+                                              <FileBarChart className="w-4 h-4 mr-2" />
+                                              查看详细报告
+                                            </Button>
+                                        ) : (
+                                            <Button className="w-full" size="sm" disabled>
+                                              <FileCheck className="w-4 h-4 mr-2" />
+                                              已提交，等待批改
+                                            </Button>
+                                        )}
+                                      </div>
+                                    </div>
                                 ) : (
-                                  <Button className="w-full" size="sm" disabled>
-                                    <FileCheck className="w-4 h-4 mr-2" />
-                                    已提交，等待批改
-                                  </Button>
+                                    <p className="text-gray-400 text-sm">当前任务未分配给你</p>
                                 )}
                               </div>
-                            </div>
                           ) : (
-                            <p className="text-gray-400 text-sm">当前任务未分配给你</p>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="space-y-4">
-                          <h3 className="text-sm font-medium text-gray-300">学生报告</h3>
-                          {currentTask.reports?.length ? (
-                            <div className="space-y-3">
-                              {currentTask.reports.map((report) => (
-                                <div key={report.id} className="bg-gray-700 p-3 rounded-lg">
-                                  <div className="flex justify-between">
-                                    <span className="text-sm font-medium">{report.studentName}</span>
-                                    <Badge
-                                      variant={
-                                        report.status === "已批改"
-                                          ? "default"
-                                          : report.status === "已提交"
-                                            ? "secondary"
-                                            : "destructive"
-                                      }
-                                      className="text-xs"
-                                    >
-                                      {report.status}
-                                    </Badge>
-                                  </div>
+                              <div className="space-y-4">
+                                <h3 className="text-sm font-medium text-gray-300">学生报告</h3>
+                                {currentTask.reports?.length ? (
+                                    <div className="space-y-3">
+                                      {currentTask.reports.map((report) => (
+                                          <div key={report.id} className="bg-gray-700 p-3 rounded-lg">
+                                            <div className="flex justify-between">
+                                              <span className="text-sm font-medium">{report.studentName}</span>
+                                              <Badge
+                                                  variant={
+                                                    report.status === "已批改"
+                                                        ? "default"
+                                                        : report.status === "已提交"
+                                                            ? "secondary"
+                                                            : "destructive"
+                                                  }
+                                                  className="text-xs"
+                                              >
+                                                {report.status}
+                                              </Badge>
+                                            </div>
 
-                                  <div className="mt-2 flex justify-end">
-                                    <Button size="sm" variant="outline" asChild disabled={report.status === "未提交"}>
-                                      <Link href={`/virtual-lab/reports/${report.id}`}>
-                                        {report.status === "已批改" ? "查看评分" : "评分"}
-                                      </Link>
-                                    </Button>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          ) : (
-                            <p className="text-gray-400 text-sm">暂无学生报告</p>
+                                            <div className="mt-2 flex justify-end">
+                                              <Button
+                                                  size="sm"
+                                                  variant="outline"
+                                                  asChild
+                                                  disabled={report.status === "未提交"}
+                                                  onClick={() => {
+                                                    // 添加ID有效性检查
+                                                    if (!report.id) {
+                                                      console.error("无法查看报告: 缺少报告ID", report);
+                                                      alert("无法查看报告: 缺少报告ID");
+                                                      return;
+                                                    }
+                                                  }}
+                                              >
+                                                <Link href={`/virtual-lab/reports/${report.id}`}>
+                                                  {report.status === "已批改" ? "查看评分" : "评分"}
+                                                </Link>
+                                              </Button>
+                                            </div>
+                                          </div>
+                                      ))}
+                                    </div>
+                                ) : (
+                                    <p className="text-gray-400 text-sm">暂无学生报告</p>
+                                )}
+                              </div>
                           )}
-                        </div>
-                      )}
-                    </>
-                  ) : (
-                    <p className="text-gray-400 text-sm">当前实验暂无任务</p>
-                  )}
-                </CardContent>
-              </Card>
+                        </>
+                    ) : (
+                        <p className="text-gray-400 text-sm">当前实验暂无任务</p>
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
             </div>
           </div>
         </div>
-      </div>
-    )
+    );
   }
 
   return (
