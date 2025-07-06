@@ -64,7 +64,7 @@ export default function ResourcesPage() {
 
   // 获取认证头部
   const getAuthHeaders = () => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('accessToken');
     return {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json'
@@ -73,7 +73,7 @@ export default function ResourcesPage() {
 
   // 获取表单数据的认证头部
   const getAuthHeadersFormData = () => {
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('accessToken');
     return {
       'Authorization': `Bearer ${token}`
     };
@@ -81,7 +81,7 @@ export default function ResourcesPage() {
 
   useEffect(() => {
     const userData = localStorage.getItem('user')
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('accessToken');
 
     if (!userData || !token) {
       router.push('/login')
