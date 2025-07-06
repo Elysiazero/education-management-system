@@ -62,9 +62,28 @@ export default function ResourcesPage() {
   const router = useRouter()
   const API_BASE_URL = "http://localhost:8080";
 
+  // 获取认证头部
+  const getAuthHeaders = () => {
+    const token = localStorage.getItem('token');
+    return {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json'
+    };
+  };
+
+  // 获取表单数据的认证头部
+  const getAuthHeadersFormData = () => {
+    const token = localStorage.getItem('token');
+    return {
+      'Authorization': `Bearer ${token}`
+    };
+  };
+
   useEffect(() => {
     const userData = localStorage.getItem('user')
-    if (!userData) {
+    const token = localStorage.getItem('token');
+
+    if (!userData || !token) {
       router.push('/login')
       return
     }
@@ -79,9 +98,18 @@ export default function ResourcesPage() {
   const fetchResources = async () => {
     setIsLoading(true)
     try {
-      const response = await fetch(`${API_BASE_URL}/oss/check/all?page=1&size=100`)
+      console.log("正在获取资源列表...");
+      const response = await fetch(`${API_BASE_URL}/oss/check/all?page=1&size=100`, {
+        headers: getAuthHeaders()
+      })
+
+      console.log("资源列表请求:", {
+        url: `${API_BASE_URL}/oss/check/all?page=1&size=100`,
+        headers: getAuthHeaders()
+      });
+
       const data = await response.json()
-      console.log("资源列表响应:", data); // 添加调试日志
+      console.log("资源列表响应:", data);
 
       if (data.code === 200) {
         const resourcesWithStatus = data.data.records.map((res: any) => ({
@@ -188,10 +216,13 @@ export default function ResourcesPage() {
         fileURL: fileURL
       });
 
+      const headers = getAuthHeadersFormData();
+      console.log("上传请求头:", headers);
+
       const response = await fetch(`${API_BASE_URL}/upload`, {
         method: 'POST',
-        body: formData
-        // 注意：不要手动设置Content-Type，浏览器会自动设置multipart/form-data
+        body: formData,
+        headers: headers
       })
 
       const result = await response.text()
@@ -243,8 +274,15 @@ export default function ResourcesPage() {
         // 浏览器环境下无法指定具体路径，使用通用路径
         const downloadPath = `/downloads/${fileName}`
 
+        const headers = getAuthHeaders();
+        console.log("下载记录请求:", {
+          url: `${API_BASE_URL}/download?fileName=${encodeURIComponent(fileName)}&localFilePath=${encodeURIComponent(downloadPath)}`,
+          headers: headers
+        });
+
         const downloadResponse = await fetch(
-            `${API_BASE_URL}/download?fileName=${encodeURIComponent(fileName)}&localFilePath=${encodeURIComponent(downloadPath)}`
+            `${API_BASE_URL}/download?fileName=${encodeURIComponent(fileName)}&localFilePath=${encodeURIComponent(downloadPath)}`,
+            { headers }
         )
 
         const result = await downloadResponse.text()
@@ -260,13 +298,29 @@ export default function ResourcesPage() {
       toast.error('下载失败: ' + (error as Error).message)
     }
   }
+
   const handleDelete = async (fileName: string) => {
+    if (user?.role !== 'admin') {
+      toast.error('只有管理员可以删除资源');
+      return;
+    }
+
     if (!confirm(`确定要删除资源 "${fileName}" 吗？`)) return
 
     try {
+      const headers = getAuthHeaders();
+      console.log("删除资源请求:", {
+        url: `${API_BASE_URL}/delete?fileName=${encodeURIComponent(fileName)}`,
+        method: 'DELETE',
+        headers: headers
+      });
+
       const response = await fetch(
           `${API_BASE_URL}/delete?fileName=${encodeURIComponent(fileName)}`,
-          { method: 'DELETE' }
+          {
+            method: 'DELETE',
+            headers
+          }
       )
 
       const result = await response.text()
@@ -282,6 +336,7 @@ export default function ResourcesPage() {
       toast.error('删除失败: ' + (error as Error).message)
     }
   }
+
   const handleCombinedSearch = async () => {
     setIsLoading(true)
     try {
@@ -291,9 +346,15 @@ export default function ResourcesPage() {
       if (typeFilter !== 'all') params.append('resourceType', typeFilter)
       if (user?.name) params.append('userName', user.name)
 
-      const response = await fetch(
-          `${API_BASE_URL}/oss/check/combined?${params.toString()}`
-      )
+      const headers = getAuthHeaders();
+      const url = `${API_BASE_URL}/oss/check/combined?${params.toString()}`
+
+      console.log("组合查询请求:", {
+        url,
+        headers
+      });
+
+      const response = await fetch(url, { headers })
       const data = await response.json()
       console.log("组合查询响应:", data);
 
@@ -308,6 +369,7 @@ export default function ResourcesPage() {
       setIsLoading(false)
     }
   }
+
   const handleApprove = (id: number) => {
     setResources(resources.map(r =>
         r.id === id ? {...r, approved: true} : r
@@ -327,14 +389,15 @@ export default function ResourcesPage() {
       // 这里需要从项目中获取实际的项目名称
       const projectName = "Java项目" // 实际项目中应从用户数据获取
 
-      const response = await fetch(
-          `${API_BASE_URL}/oss/check/search-by-project-title?keyword=${encodeURIComponent(projectName)}`,
-          {
-            headers: {
-              Authorization: `Bearer ${localStorage.getItem('token')}`
-            }
-          }
-      )
+      const headers = getAuthHeaders();
+      const url = `${API_BASE_URL}/oss/check/search-by-project-title?keyword=${encodeURIComponent(projectName)}`
+
+      console.log("项目资源请求:", {
+        url,
+        headers
+      });
+
+      const response = await fetch(url, { headers })
       const data = await response.json()
       console.log("项目资源响应:", data);
 
@@ -543,6 +606,7 @@ export default function ResourcesPage() {
                                   size="sm"
                                   variant="outline"
                                   onClick={() => handleDelete(resource.fileName)}
+                                  disabled={user.role !== 'admin'}
                               >
                                 <X className="w-4 h-4 mr-2" />
                                 删除
