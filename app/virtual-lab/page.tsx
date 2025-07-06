@@ -635,9 +635,15 @@ const fetchTaskReports = async (taskId: string): Promise<TaskReport[]> => {
   if (!response.ok) throw new Error("获取任务报告失败")
 
   const responseData = await response.json()
-  const reports = responseData?.data || []
+  const reportsArray = responseData?.data?.records || responseData?.data?.content || (Array.isArray(responseData?.data) ? responseData.data : [])
 
-  return reports.map((report: any) => ({
+  if (!Array.isArray(reportsArray)) {
+    console.error("获取到的报告数据不是一个有效的数组:", responseData.data);
+    return []; // 如果最终还不是数组，返回空数组避免崩溃
+  }
+  // --- 结束修改 ---
+
+  return reportsArray.map((report: any) => ({ // 现在这里是安全的
     id: String(report.id),
     studentId: String(report.studentId),
     studentName: report.studentName || "未知学生",
@@ -659,7 +665,6 @@ const fetchTaskReports = async (taskId: string): Promise<TaskReport[]> => {
       })) || [],
   }))
 }
-
 // 为报告评分
 const gradeReport = async (reportId: string, grade: number, feedback: string): Promise<void> => {
   const token = getAuthToken()
@@ -1886,7 +1891,7 @@ function VirtualLabPage() {
         </div>
 
         <Card className="mb-6">
-          <CardContent className="flex items-center space-x-4">
+          <CardContent className="flex items-center space-x-4 py-6">
             <div className="flex-1">
               <Input
                 type="text"
