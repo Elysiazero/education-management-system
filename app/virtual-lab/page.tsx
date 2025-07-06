@@ -235,13 +235,13 @@ const normalizeAssignment = (task: any): Assignment => {
   return {
     id: String(task.id),
     taskName: task.taskName || "未命名任务",
-    className: task.classInfo?.name || "未知班级", // 修正为 classInfo.name
-    classId: String(task.classInfo?.id || ""), // 修正为 classInfo.id
-    experimentId: String(task.experiment?.id || ""), // 修正为 experiment.id
-    experimentTitle: task.experiment?.title || "未知实验", // 修正为 experiment.title
+    className: task.classInfo?.name || "未知班级", // 使用嵌套的classInfo.name
+    classId: String(task.classInfo?.id || ""), // 使用嵌套的classInfo.id
+    experimentId: String(task.experiment?.id || ""), // 使用嵌套的experiment.id
+    experimentTitle: task.experiment?.title || "未知实验", // 使用嵌套的experiment.title
     startTime: task.startTime || new Date().toISOString(),
     endTime: task.endTime || new Date().toISOString(),
-    requirements: task.taskRequirements || "", // 修正为 taskRequirements
+    requirements: task.taskRequirements || "", // 使用taskRequirements
     status: mapTaskStatus(task.status),
     assignedTo: task.assignedTo || [],
     submittedAt: task.submittedAt,
@@ -322,7 +322,6 @@ const fetchUser = async (): Promise<UserType> => {
   }
 }
 
-// 获取实验详情
 const getExperimentById = async (id: string): Promise<Experiment> => {
   const token = getAuthToken()
   if (!token) throw new Error("用户未登录")
@@ -338,9 +337,10 @@ const getExperimentById = async (id: string): Promise<Experiment> => {
   const responseData = await response.json()
 
   if (!responseData.data) {
-    throw new Error(`无法找到ID为 ${id} 的实验`);
+    throw new Error(`无法找到ID为 ${id} 的实验`)
   }
-  return normalizeExperiment(responseData.data)
+
+  return normalizeExperiment(responseData.data) // 传递data字段
 }
 
 // 创建新实验
@@ -523,7 +523,10 @@ const getMyReport = async (taskId: string): Promise<Report> => {
   })
 
   if (!response.ok) throw new Error("获取实验报告失败")
-  const data = await response.json()
+
+  // 修正：直接使用responseData.data
+  const responseData = await response.json()
+  const data = responseData?.data || responseData // 兼容两种格式
 
   return {
     id: data.id,
@@ -531,17 +534,17 @@ const getMyReport = async (taskId: string): Promise<Report> => {
     studentName: data.studentName,
     submittedAt: data.submittedAt,
     content: data.manualContent || "",
-    autoContent: data.autoContent || "", // 自动生成内容
+    autoContent: data.autoContent || "",
     grade: data.grade,
     feedback: data.feedback,
     status: data.status,
     attachments:
-      data.attachments?.map((a: any) => ({
-        id: a.id,
-        name: a.name,
-        url: a.url,
-        type: a.type,
-      })) || [],
+        data.attachments?.map((a: any) => ({
+          id: a.id,
+          name: a.name,
+          url: a.url,
+          type: a.type,
+        })) || [],
   }
 }
 
@@ -1201,14 +1204,16 @@ function VirtualLabPage() {
     return task.reports?.find((report) => report.studentId === user.id)
   }
 
-  // 处理查看任务详情
   const handleViewTaskDetails = async (task: Assignment) => {
     try {
-      // 直接通过API获取实验详情，而不是从本地缓存查找
+      // 确保使用task.experimentId而不是task.id
       const experiment = await getExperimentById(task.experimentId);
+
       if (experiment) {
-        handleSelectExperiment(experiment, task);
+        setSelectedExperiment(experiment);
+        setSelectedTask(task);
       } else {
+        console.error("找不到对应的实验信息", task);
         alert("找不到对应的实验信息");
       }
     } catch (error) {
@@ -2231,13 +2236,16 @@ function VirtualLabPage() {
                     <Card key={task.id} className="cursor-pointer hover:shadow-md transition-shadow duration-300">
                       <CardHeader>
                         <CardTitle>{task.taskName}</CardTitle>
-                        <CardDescription>实验: {task.experimentTitle}</CardDescription>
+                        <CardDescription>
+                          实验: {task.experimentTitle}
+                          班级: {task.className} 
+                        </CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-3">
-                        <div className="flex justify-between">
-                          <span className="text-sm font-medium">班级</span>
-                          <span className="text-sm text-gray-500">{task.className}</span>
-                        </div>
+                        {/*<div className="flex justify-between">*/}
+                        {/*  <span className="text-sm font-medium">班级</span>*/}
+                        {/*  <span className="text-sm text-gray-500">{task.className}</span>*/}
+                        {/*</div>*/}
                         <div className="flex justify-between">
                           <span className="text-sm text-gray-500">截止时间</span>
                           <span className="text-sm text-gray-500">{new Date(task.endTime).toLocaleDateString()}</span>
