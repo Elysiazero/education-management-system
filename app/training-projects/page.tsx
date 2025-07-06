@@ -96,6 +96,7 @@ interface ProjectTaskDTO {
   dueDate: string;
   priority: TaskPriority;
   submissions: TaskSubmissionDTO[];
+  assigneeType: "USER" | "TEAM";
 }
 
 interface TaskSubmissionDTO {
@@ -127,6 +128,10 @@ interface CommentDTO {
   content: string;
   createdAt: string;
   replies: CommentDTO[];
+  author?: { // 添加 author 属性
+    id: number;
+    realName: string;
+  };
 }
 
 interface ClassDTO {
@@ -134,7 +139,15 @@ interface ClassDTO {
   name: string;
 }
 // 团队卡片组件
-const TeamCard = ({ team, user }: { team: ProjectTeamDTO; user: UserInfoDTO | null }) => {
+const TeamCard = ({
+                    team,
+                    user,
+                    onGradeTeam
+                  }: {
+  team: ProjectTeamDTO;
+  user: UserInfoDTO | null;
+  onGradeTeam?: (team: ProjectTeamDTO) => void;
+}) => {
   const [loading, setLoading] = useState(false);
   const [members, setMembers] = useState<UserInfoDTO[]>([]);
 
@@ -209,6 +222,18 @@ const TeamCard = ({ team, user }: { team: ProjectTeamDTO; user: UserInfoDTO | nu
               <Users className="w-3 h-3 mr-1" />
               {members.length}人
             </Badge>
+
+            {/* 添加评分按钮 - 只对教师显示 */}
+            {user?.role === "teacher" && (
+                <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onGradeTeam && onGradeTeam(team)}
+                >
+                  <Star className="w-3 h-3 mr-1 text-yellow-500" />
+                  评分
+                </Button>
+            )}
           </CardTitle>
           <CardDescription>
             {team.description || "无描述"}
@@ -416,10 +441,26 @@ export default function TrainingProjectsPage() {
   const [currentTeamForTaskAssignment, setCurrentTeamForTaskAssignment] = useState<ProjectTeamDTO | null>(null);
   const [currentTaskForSubmission, setCurrentTaskForSubmission] = useState<ProjectTaskDTO | null>(null);
   const [currentTaskForEdit, setCurrentTaskForEdit] = useState<ProjectTaskDTO | null>(null);
+  // 当currentTaskForEdit变化时，初始化assigneeType和selectedAssigneeId
+  useEffect(() => {
+    if (currentTaskForEdit) {
+      setAssigneeType(currentTaskForEdit.assigneeType || 'USER');
+      if (currentTaskForEdit.assigneeType === 'USER') {
+        setSelectedAssigneeId(currentTaskForEdit.assigneeId);
+      } else if (currentTaskForEdit.assigneeType === 'TEAM') {
+        setSelectedAssigneeId(currentTaskForEdit.assignedToTeamId);
+      }
+    } else {
+      setAssigneeType('USER');
+      setSelectedAssigneeId(null);
+    }
+  }, [currentTaskForEdit]);
   const [comments, setComments] = useState<CommentDTO[]>([]);
   const [newCommentContent, setNewCommentContent] = useState('');
   const [classes, setClasses] = useState<ClassDTO[]>([]);
   const [classMembers, setClassMembers] = useState<UserInfoDTO[]>([]);
+  const [assigneeType, setAssigneeType] = useState<"USER" | "TEAM">("USER"); // 新增状态：分配类型
+  const [selectedAssigneeId, setSelectedAssigneeId] = useState<number | null>(null); // 新增状态：选中的分配人/团队ID
   const [classStudents, setClassStudents] = useState<{[key: number]: UserInfoDTO[]}>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -432,6 +473,8 @@ export default function TrainingProjectsPage() {
   const [projectTasks, setProjectTasks] = useState<ProjectTaskDTO[]>([]);
   const [teamMembersMap, setTeamMembersMap] = useState<Record<number, UserInfoDTO[]>>({});
   const [loadingTeams, setLoadingTeams] = useState<Record<number, boolean>>({});
+  const [allUsers, setAllUsers] = useState<UserInfoDTO[]>([]);
+  const [allTeams, setAllTeams] = useState<ProjectTeamDTO[]>([]);
   useEffect(() => {
     const fetchUserAndData = async () => {
       try {
@@ -520,13 +563,21 @@ export default function TrainingProjectsPage() {
             throw new Error("获取班级列表失败");
           }
 
-          const classesData = await classesResponse.json();
-          console.log("获取的班级列表数据:", classesData);
+          let classesData = await classesResponse.json();
+          console.log("获取的班级列表数据:", classesData.data.records);
+          classesData=classesData.data.records;
+          // 确保 classesData 是一个数组
+          if (!Array.isArray(classesData)) {
+            console.warn("classesData 不是一个数组，将其设置为空数组。");
+            classesData = [];
+          }
           setClasses(classesData);
 
           // 获取每个班级的详细信息（包括学生）
           const classStudentsMap: { [key: number]: UserInfoDTO[] } = {};
+          console.log("Before Promise.all, classesData:", classesData);
           await Promise.all(classesData.map(async (cls: ClassDTO) => {
+            console.log("Inside map for class:", cls.id);
             try {
               const classDetailResponse = await fetch(`${API_BASE_URL}/classes/${cls.id}`, {
                 headers: {
@@ -543,7 +594,7 @@ export default function TrainingProjectsPage() {
               console.log(`班级 ${cls.id} 详情:`, classDetail);
 
               // 使用新的数据结构
-              classStudentsMap[cls.id] = classDetail.members || [];
+              classStudentsMap[cls.id] = classDetail.data.members || [];
             } catch (err) {
               console.error(`获取班级 ${cls.id} 详情失败:`, err);
             }
@@ -567,6 +618,19 @@ export default function TrainingProjectsPage() {
 
     fetchUserAndData();
   }, [router]);
+
+  // 根据选择的班级更新班级成员列表
+  useEffect(() => {
+    if (selectedClassId && classStudents[selectedClassId]) {
+      setClassMembers(classStudents[selectedClassId]);
+    } else if (user?.role === 'student' && user?.classId && classStudents[user.classId]) {
+      // 如果是学生，并且有班级ID，则设置班级成员为自己班级的成员
+      setClassMembers(classStudents[user.classId]);
+    } else {
+      // 如果没有选择班级，或者没有班级学生数据，清空班级成员
+      setClassMembers([]);
+    }
+  }, [selectedClassId, classStudents, user]);
 
 //获取团队成员
   const fetchTeamMembers = async (teamId: number) => {
@@ -736,7 +800,7 @@ export default function TrainingProjectsPage() {
   const handleCreateProject = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem("token");
+      const token = localStorage.getItem("accessToken");
 
       // 获取表单值
       const title = (document.getElementById('title') as HTMLInputElement)?.value || "新项目";
@@ -867,55 +931,51 @@ export default function TrainingProjectsPage() {
   const handleCreateTask = async () => {
     if (!selectedProject) return;
 
+    const taskTitle = (document.getElementById("taskTitle") as HTMLInputElement).value;
+    const taskDescription = (document.getElementById("taskDescription") as HTMLTextAreaElement).value;
+    const taskDueDate = (document.getElementById("taskDueDate") as HTMLInputElement).value;
+    const taskPriority = (document.getElementById("taskPriority") as HTMLSelectElement).value as TaskPriority;
+    // const taskAssigneeId = (document.getElementById("taskAssignee") as HTMLSelectElement).value;
+
+    if (!taskTitle || !taskDueDate || !taskPriority) {
+      setError("请填写所有必填项");
+      return;
+    }
+
     try {
       setLoading(true);
       const token = localStorage.getItem("accessToken");
-
-      // 获取表单值
-      const title = (document.getElementById('taskTitle') as HTMLInputElement)?.value || "新任务";
-      const description = (document.getElementById('taskDescription') as HTMLTextAreaElement)?.value || "任务描述";
-      const dueDate = (document.getElementById('taskDueDate') as HTMLInputElement)?.value || "";
-      const priority = (document.getElementById('taskPriority') as HTMLSelectElement)?.value || "MEDIUM";
-
-      // 获取分配成员
-      const assigneeElement = document.getElementById('taskAssignee') as HTMLSelectElement;
-      const assigneeId = assigneeElement?.value ? parseInt(assigneeElement.value) : null;
-
-      // 创建任务请求体
-      const taskData = {
-        title,
-        description,
-        dueDate,
-        priority,
-        assignedToUserId: assigneeId,
-        projectId: selectedProject.id
-      };
-
-      console.log("创建任务请求体:", taskData);
 
       const response = await fetch(`${API_BASE_URL}/tasks`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
+          "Authorization": `Bearer ${token}`,
         },
-        body: JSON.stringify(taskData)
+        body: JSON.stringify({
+          projectId: selectedProject.id,
+          title: taskTitle,
+          description: taskDescription,
+          dueDate: taskDueDate,
+          priority: taskPriority,
+          assigneeType: assigneeType,
+          ...(assigneeType === "USER" && { assigneeId: selectedAssigneeId }),
+          ...(assigneeType === "TEAM" && { assignedToTeamId: selectedAssigneeId }),
+        }),
       });
 
       if (!response.ok) {
-        throw new Error("创建任务失败");
+        const errorData = await response.json();
+        throw new Error(errorData.message || "创建任务失败");
       }
 
       const newTask = await response.json();
-      console.log("创建的任务响应数据:", newTask);
+      console.log("新任务创建成功:", newTask);
 
-      const updatedProject = {
-        ...selectedProject,
-        tasks: [...(selectedProject.tasks || []), newTask]
-      };
-
-      setSelectedProject(updatedProject);
+      // 重新获取项目详情以更新任务列表
+      fetchProjectDetails(selectedProject.id);
       setShowCreateTask(false);
+      setError("");
     } catch (err: any) {
       console.error("创建任务失败:", err);
       setError(err.message || "创建任务失败");
@@ -930,28 +990,13 @@ export default function TrainingProjectsPage() {
 
     try {
       setLoading(true);
-      const token = localStorage.getItem("token");
+      const token = localStorage.getItem("accessToken");
 
       // 获取表单值
-      const title = (document.getElementById('editTaskTitle') as HTMLInputElement)?.value || currentTaskForEdit.title;
-      const description = (document.getElementById('editTaskDescription') as HTMLTextAreaElement)?.value || currentTaskForEdit.description;
-      const dueDate = (document.getElementById('editTaskDueDate') as HTMLInputElement)?.value || currentTaskForEdit.dueDate;
-      const priority = (document.getElementById('editTaskPriority') as HTMLSelectElement)?.value || currentTaskForEdit.priority;
-
-      // 获取分配成员
-      const assigneeElement = document.getElementById('editTaskAssignee') as HTMLSelectElement;
-      const assigneeId = assigneeElement?.value ? parseInt(assigneeElement.value) : null;
-
-      // 更新任务请求体
-      const taskData = {
-        title,
-        description,
-        dueDate,
-        priority,
-        assignedToUserId: assigneeId
-      };
-
-      console.log("更新任务请求体:", taskData);
+      const title = (document.getElementById('taskTitle') as HTMLInputElement)?.value || currentTaskForEdit.title;
+      const description = (document.getElementById('taskDescription') as HTMLTextAreaElement)?.value || currentTaskForEdit.description;
+      const dueDate = (document.getElementById('taskDueDate') as HTMLInputElement)?.value || currentTaskForEdit.dueDate;
+      const priority = (document.getElementById('taskPriority') as HTMLSelectElement)?.value || currentTaskForEdit.priority;
 
       const response = await fetch(`${API_BASE_URL}/tasks/${currentTaskForEdit.id}`, {
         method: "PUT",
@@ -959,7 +1004,16 @@ export default function TrainingProjectsPage() {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${token}`
         },
-        body: JSON.stringify(taskData)
+        body: JSON.stringify({
+          projectId: selectedProject.id,
+          title: title,
+          description: description,
+          dueDate: dueDate,
+          priority: priority,
+          assigneeType: assigneeType,
+          ...(assigneeType === "USER" && { assigneeId: selectedAssigneeId }),
+          ...(assigneeType === "TEAM" && { assignedToTeamId: selectedAssigneeId }),
+        })
       });
 
       if (!response.ok) {
@@ -995,7 +1049,7 @@ export default function TrainingProjectsPage() {
 
     try {
       setLoading(true);
-      const token = localStorage.getItem("token");
+      const token = localStorage.getItem("accessToken");
 
       console.log(`删除任务: taskId=${taskId}`);
       const response = await fetch(`${API_BASE_URL}/tasks/${taskId}`, {
@@ -1428,7 +1482,7 @@ export default function TrainingProjectsPage() {
                   <Target className="w-4 h-4 mr-1" />
                   任务完成: {completedTasks}/{totalTasks}
                 </div>
-                {userTeam && (
+                {user?.role === "student" && userTeam && (
                     <div className="flex items-center text-sm text-green-600">
                       <UserCheck className="w-4 h-4 mr-1" />
                       我的团队: {userTeam.name}
@@ -1443,7 +1497,8 @@ export default function TrainingProjectsPage() {
                 </div>
                 <Progress value={selectedProject.progress} className="h-2" />
 
-                {userTeam && (
+                {/* 仅当用户是学生且团队时显示团队进度 */}
+                {user?.role === "student" && userTeam && (
                     <>
                       <div className="flex justify-between text-sm">
                         <span>我的团队进度</span>
@@ -1494,7 +1549,9 @@ export default function TrainingProjectsPage() {
                       </CardContent>
                     </Card>
 
-                    {userTeam && <MyTeamCard team={userTeam} user={user} />}
+                    {user?.role === "student" && userTeam && (
+                        <MyTeamCard team={userTeam} user={user} />
+                    )}
                   </div>
 
                   <div className="space-y-6">
@@ -1716,18 +1773,51 @@ export default function TrainingProjectsPage() {
                                   </div>
                                 </div>
                                 <div>
-                                  <Label htmlFor="taskAssignee">分配成员</Label>
+                                  <Label htmlFor="taskAssignee">分配给</Label>
                                   <select
-                                      id="taskAssignee"
-                                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                      id="assigneeType"
+                                      className="w-full px-3 py-2 border border-gray-300 rounded-md mb-2"
+                                      value={assigneeType}
+                                      onChange={(e) => {
+                                        setAssigneeType(e.target.value as "USER" | "TEAM");
+                                        setSelectedAssigneeId(null); // Reset selected assignee when type changes
+                                      }}
                                   >
-                                    <option value="">不分配</option>
-                                    {classMembers.map(member => (
-                                        <option key={member.id} value={member.id}>
-                                          {member.realName}
-                                        </option>
-                                    ))}
+                                    <option value="USER">个人</option>
+                                    <option value="TEAM">团队</option>
                                   </select>
+
+                                  {assigneeType === "USER" && (
+                                      <select
+                                          id="taskAssignee"
+                                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                          value={selectedAssigneeId || ""}
+                                          onChange={(e) => setSelectedAssigneeId(Number(e.target.value))}
+                                      >
+                                        <option value="">不分配</option>
+                                        {classMembers.map(member => (
+                                            <option key={member.id} value={member.id}>
+                                              {member.realName}
+                                            </option>
+                                        ))}
+                                      </select>
+                                  )}
+
+                                  {assigneeType === "TEAM" && (
+                                      <select
+                                          id="taskAssigneeTeam"
+                                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                                          value={selectedAssigneeId || ""}
+                                          onChange={(e) => setSelectedAssigneeId(Number(e.target.value))}
+                                      >
+                                        <option value="">不分配</option>
+                                        {selectedProject?.teams?.map(team => (
+                                            <option key={team.id} value={team.id}>
+                                              {team.name}
+                                            </option>
+                                        ))}
+                                      </select>
+                                  )}
                                 </div>
                                 <Button onClick={handleCreateTask} className="w-full">
                                   创建任务
@@ -1743,18 +1833,20 @@ export default function TrainingProjectsPage() {
                     <div className="space-y-4">
 
                       {visibleTasks.map(task => {
-                        const isMyTask = task.assigneeId === user?.id;
-                        const isTeamTask = task.assignedToTeamId && userTeam && task.assignedToTeamId === userTeam.id;
+                        const isMyTask = task.assigneeType === "USER" && task.assigneeId === user?.id;
+                        const isTeamTask = task.assigneeType === "TEAM" && task.assignedToTeamId && userTeam && task.assignedToTeamId === userTeam.id;
                         const canSubmit = (isMyTask || (isTeamTask && isUserTeamLeader));
                         const mySubmission = task.submissions?.find(sub => sub.userId === user?.id);
 
                         // 获取负责人信息
-                        const assignee = classMembers.find(m => m.id === task.assigneeId) ||
-                            { realName: "未分配", username: "未分配" };
-
-                        // 获取团队信息
-                        const assignedTeam = selectedProject?.teams?.find(t => t.id === task.assignedToTeamId) ||
-                            { name: "未分配团队" };
+                        let displayAssigneeName = "未分配";
+                        if (task.assigneeType === "USER" && task.assigneeId) {
+                          const assignee = classMembers.find(m => m.id === task.assigneeId);
+                          displayAssigneeName = assignee ? (assignee.realName || assignee.username) : "未分配";
+                        } else if (task.assigneeType === "TEAM" && task.assigneeId) {
+                          const assignedTeam = selectedProject?.teams?.find(t => t.id === task.assigneeId);
+                          displayAssigneeName = assignedTeam ? assignedTeam.name : "未分配团队";
+                        }
 
                         return (
                             <div
@@ -1784,16 +1876,12 @@ export default function TrainingProjectsPage() {
                                 <p className="text-sm text-gray-600 mb-2">{task.description}</p>
                                 <div className="flex items-center space-x-4 text-xs text-gray-500">
                                   <span>截止: {new Date(task.dueDate).toLocaleDateString()}</span>
-                                  {task.assigneeId && (
+                                  {(task.assigneeType === "USER" && task.assigneeId) || (task.assigneeType === "TEAM" && task.assignedToTeamId) ? (
                                       <span>
-              负责人: {assignee.realName || assignee.username}
+              负责人: {displayAssigneeName}
             </span>
-                                  )}
-                                  {task.assignedToTeamId && (
-                                      <span>
-              团队: {assignedTeam.name}
-            </span>
-                                  )}
+                                  ) : null}
+
                                 </div>
 
                                 {/* 提交区域 */}
@@ -1890,16 +1978,24 @@ export default function TrainingProjectsPage() {
                           </div>
                       ) : (
                           comments.map(comment => {
-                            const author = classMembers.find(m => m.id === comment.authorId) || user;
+                            // 使用 authorId 查找作者信息
+                            const author = classMembers.find(m => m.id === comment.authorId);
+
                             return (
                                 <div key={comment.id} className="flex items-start space-x-3">
                                   <Avatar className="w-8 h-8">
-                                    <AvatarFallback>{author?.realName.charAt(0).toUpperCase()}</AvatarFallback>
+                                    <AvatarFallback>
+                                      {author?.realName?.charAt(0).toUpperCase() || "U"}
+                                    </AvatarFallback>
                                   </Avatar>
                                   <div className="flex-1 bg-gray-100 p-3 rounded-lg">
                                     <div className="flex items-center justify-between mb-1">
-                                      <span className="font-medium text-gray-800">{author?.realName}</span>
-                                      <span className="text-xs text-gray-500">{comment.createdAt}</span>
+                    <span className="font-medium text-gray-800">
+                      {author?.realName || "未知用户"}
+                    </span>
+                                      <span className="text-xs text-gray-500">
+                      {new Date(comment.createdAt).toLocaleString()}
+                    </span>
                                     </div>
                                     <p className="text-sm text-gray-700">{comment.content}</p>
                                   </div>
@@ -1917,7 +2013,11 @@ export default function TrainingProjectsPage() {
                           rows={4}
                           className="mb-3"
                       />
-                      <Button onClick={handleAddComment} disabled={!newCommentContent.trim() || loading}>
+                      <Button
+                          onClick={handleAddComment}
+                          disabled={!newCommentContent.trim() || loading}
+                      >
+                        <Send className="w-4 h-4 mr-2" />
                         发表评论
                       </Button>
                     </div>
@@ -1969,17 +2069,17 @@ export default function TrainingProjectsPage() {
               </DialogHeader>
               <div className="space-y-4">
                 <div>
-                  <Label htmlFor="editTaskTitle">任务标题</Label>
+                  <Label htmlFor="taskTitle">任务标题</Label>
                   <Input
-                      id="editTaskTitle"
+                      id="taskTitle"
                       defaultValue={currentTaskForEdit?.title}
                       placeholder="输入任务标题"
                   />
                 </div>
                 <div>
-                  <Label htmlFor="editTaskDescription">任务描述</Label>
+                  <Label htmlFor="taskDescription">任务描述</Label>
                   <Textarea
-                      id="editTaskDescription"
+                      id="taskDescription"
                       defaultValue={currentTaskForEdit?.description}
                       placeholder="输入任务详细描述"
                       rows={3}
@@ -1987,17 +2087,17 @@ export default function TrainingProjectsPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="editTaskDueDate">截止日期</Label>
+                    <Label htmlFor="taskDueDate">截止日期</Label>
                     <Input
-                        id="editTaskDueDate"
+                        id="taskDueDate"
                         type="date"
                         defaultValue={currentTaskForEdit?.dueDate}
                     />
                   </div>
                   <div>
-                    <Label htmlFor="editTaskPriority">优先级</Label>
+                    <Label htmlFor="taskPriority">优先级</Label>
                     <select
-                        id="editTaskPriority"
+                        id="taskPriority"
                         defaultValue={currentTaskForEdit?.priority || "MEDIUM"}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md"
                     >
@@ -2008,19 +2108,51 @@ export default function TrainingProjectsPage() {
                   </div>
                 </div>
                 <div>
-                  <Label htmlFor="editTaskAssignee">分配成员</Label>
+                  <Label htmlFor="assigneeType">分配给</Label>
                   <select
-                      id="editTaskAssignee"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md"
-                      defaultValue={currentTaskForEdit?.assigneeId || ""}
+                      id="assigneeType"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md mb-2"
+                      value={assigneeType}
+                      onChange={(e) => {
+                        setAssigneeType(e.target.value as "USER" | "TEAM");
+                        setSelectedAssigneeId(null); // 重置选择的分配对象
+                      }}
                   >
-                    <option value="">不分配</option>
-                    {classMembers.map(member => (
-                        <option key={member.id} value={member.id}>
-                          {member.realName}
-                        </option>
-                    ))}
+                    <option value="USER">个人</option>
+                    <option value="TEAM">团队</option>
                   </select>
+
+                  {assigneeType === "USER" && (
+                      <select
+                          id="selectedAssigneeId"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                          value={selectedAssigneeId || ''}
+                          onChange={(e) => setSelectedAssigneeId(Number(e.target.value))}
+                      >
+                        <option value="">选择用户</option>
+                        {classMembers.map((member) => (
+                            <option key={member.id} value={member.id}>
+                              {member.realName}
+                            </option>
+                        ))}
+                      </select>
+                  )}
+
+                  {assigneeType === "TEAM" && (
+                      <select
+                          id="selectedAssigneeId"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                          value={selectedAssigneeId || ''}
+                          onChange={(e) => setSelectedAssigneeId(Number(e.target.value))}
+                      >
+                        <option value="">选择团队</option>
+                        {(selectedProject?.teams || []).map((team) => (
+                            <option key={team.id} value={team.id}>
+                              {team.name}
+                            </option>
+                        ))}
+                      </select>
+                  )}
                 </div>
                 <Button onClick={handleUpdateTask} disabled={loading}>
                   保存更改
@@ -2028,6 +2160,7 @@ export default function TrainingProjectsPage() {
               </div>
             </DialogContent>
           </Dialog>
+
 
           {/* 团队评分对话框 */}
           <Dialog open={showGradeTeam} onOpenChange={setShowGradeTeam}>
