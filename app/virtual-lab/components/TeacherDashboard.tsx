@@ -21,7 +21,7 @@ import { Star, Plus, Send, FileText, AlertCircle, CheckCircle, Award, Microscope
 // =================================================================
 interface UserType { id: string; name: string; role: "student" | "teacher" | "admin"; }
 interface Experiment { id: string; title: string; description: string; category: string; difficulty: number; duration: number; creator: string; thumbnail: string; }
-interface Assignment { id: string; taskName: string; className: string; classId: string; experimentId: string; experimentTitle?: string; endTime: string; }
+interface Assignment { id: string; taskName: string; className: string; classId: string; experimentId: string; experimentTitle?: string; startTime: string; endTime: string; }
 interface TaskReport { id: string; studentName: string; status: "未提交" | "已提交" | "已批改"; grade?: number; }
 interface ClassDTO { id: number; name: string; }
 interface UserInfoDTO { id: number; name: string; }
@@ -62,6 +62,7 @@ const normalizeAssignment = (task: any): Assignment => ({
   classId: String(task.classInfo?.id || ""),
   experimentId: String(task.experiment?.id || ""),
   experimentTitle: task.experiment?.title || "未知实验",
+  startTime: task.startTime || new Date().toISOString(),
   endTime: task.endTime || new Date().toISOString(),
 });
 
@@ -91,10 +92,18 @@ const createExperiment = async (newExperiment: any, files: { simulationPackage?:
   if (!response.ok) throw new Error((await response.json()).message || "创建实验失败");
   return normalizeExperiment((await response.json()).data);
 };
-
 const publishAssignment = async (assignmentData: any): Promise<Assignment> => {
   const token = getAuthToken();
   if (!token) throw new Error("用户未登录");
+
+  // 解析评分规则
+  let scoringRules;
+  try {
+    scoringRules = JSON.parse(assignmentData.scoringRules);
+  } catch (e) {
+    throw new Error("评分规则必须是有效的JSON格式");
+  }
+
   const response = await fetch(`${API_BASE_URL}/experiment-tasks/assign`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -106,11 +115,14 @@ const publishAssignment = async (assignmentData: any): Promise<Assignment> => {
       startTime: assignmentData.startTime,
       endTime: assignmentData.endTime,
       studentIds: assignmentData.studentIds.map((id: string | number) => Number(id)),
+      scoringRules: scoringRules // 新增评分规则
     }),
   });
+
   if (!response.ok) throw new Error((await response.json()).message || "发布任务失败");
   return normalizeAssignment((await response.json()).data);
 };
+
 
 const fetchTeacherTasks = async (): Promise<Assignment[]> => {
   const token = getAuthToken();
@@ -127,7 +139,15 @@ const fetchTaskReports = async (taskId: string): Promise<TaskReport[]> => {
   const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/reports`, { headers: { Authorization: `Bearer ${token}` } });
   if (!response.ok) throw new Error("获取任务报告失败");
   const data = (await response.json()).data;
-  return (data?.content || data?.records || []).map((r: any) => ({ ...r, status: mapReportStatus(r.status) }));
+  return (data?.content || data?.records || []).map((r: any) => ({
+    ...r,
+    status: mapReportStatus(r.status),
+    // ➡️ 只保留合法数字，其余设为 null
+    grade:
+      r.grade !== null && r.grade !== undefined && !isNaN(Number(r.grade))
+        ? Number(r.grade)
+        : null,
+  }))
 };
 
 const fetchExperiments = async (): Promise<Experiment[]> => {
@@ -170,7 +190,26 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
   const [newExperiment, setNewExperiment] = useState({ title: "", description: "", subject: "化学", difficulty: 3 });
   const [simulationPackage, setSimulationPackage] = useState<File | null>(null);
   const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
-  const [newAssignment, setNewAssignment] = useState({ taskName: "", classId: "", studentId: "", startTime: "", endTime: "", requirements: "" });
+  const [newAssignment, setNewAssignment] = useState({
+    taskName: "",
+    classId: "",
+    studentId: "",
+    startTime: "", // 新增开始时间
+    endTime: "",
+    requirements: "",
+    scoringRules: JSON.stringify([ // 新增评分规则
+      {
+        dimension: "操作准确性",
+        metric: "DATA_ACCURACY",
+        points: 50,
+        expected: {
+          metricName: "",
+          targetValue: 0,
+          tolerance: 0
+        }
+      }
+    ], null, 2)
+  });
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [difficultyFilter, setDifficultyFilter] = useState("all");
@@ -190,17 +229,26 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
   });
 
   // Memoized Calculations
-  const gradingStats = useMemo((): GradingStats => {
-    if (!allReports) return { totalReports: 0, submittedReports: 0, gradedReports: 0, averageGrade: 0 };
-    const graded = allReports.filter(r => r.status === '已批改' && r.grade != null);
-    const averageGrade = graded.length > 0 ? graded.reduce((sum, r) => sum + (r.grade || 0), 0) / graded.length : 0;
+  const gradingStats = useMemo<GradingStats>(() => {
+    if (!allReports) {
+      return { totalReports: 0, submittedReports: 0, gradedReports: 0, averageGrade: 0 }
+    }
+
+    // 已批改且 grade 是有效数字
+    const graded = allReports.filter(
+      r => r.status === '已批改' && typeof r.grade === 'number' && !isNaN(r.grade)
+    )
+
+    const total = graded.reduce((sum, r) => sum + (r.grade as number), 0)
+    const avg = graded.length ? +(total / graded.length).toFixed(1) : 0
+
     return {
       totalReports: allReports.length,
-      submittedReports: allReports.filter(r => r.status === '已提交' || r.status === '已批改').length,
+      submittedReports: allReports.filter(r => r.status !== '未提交').length,
       gradedReports: graded.length,
-      averageGrade: parseFloat(averageGrade.toFixed(1)),
-    };
-  }, [allReports]);
+      averageGrade: avg,
+    }
+  }, [allReports])
 
   const filteredExperiments = useMemo(() => {
     let filtered = experiments || [];
@@ -237,6 +285,20 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
     if (!currentExperiment || !newAssignment.classId) return alert("请选择实验和班级");
     const studentIds = newAssignment.studentId ? [newAssignment.studentId] : classData?.studentsMap[Number(newAssignment.classId)]?.map(s => s.id.toString()) || [];
     if (studentIds.length === 0) return alert("该班级下没有学生");
+    if (!currentExperiment || !newAssignment.classId)
+      return alert("请选择实验和班级");
+
+    if (!newAssignment.startTime || !newAssignment.endTime)
+      return alert("请填写开始时间和截止时间");
+
+    if (!newAssignment.scoringRules.trim())
+      return alert("请填写评分规则");
+
+    try {
+      JSON.parse(newAssignment.scoringRules);
+    } catch (e) {
+      return alert("评分规则必须是有效的JSON格式");
+    }
     publishAssignmentMutation.mutate({ ...newAssignment, experimentId: currentExperiment.id, studentIds });
   };
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: React.Dispatch<React.SetStateAction<File | null>>) => {
@@ -273,11 +335,26 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
 
         <Card className="mb-6">
           <CardHeader><CardTitle>教学统计</CardTitle></CardHeader>
-          <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
-            <div><FileText className="mx-auto h-7 w-7 text-blue-500 mb-1" /><p className="text-2xl font-bold">{gradingStats.totalReports}</p><p className="text-sm text-gray-500">总报告数</p></div>
-            <div><AlertCircle className="mx-auto h-7 w-7 text-yellow-500 mb-1" /><p className="text-2xl font-bold">{gradingStats.submittedReports - gradingStats.gradedReports}</p><p className="text-sm text-gray-500">待批改</p></div>
-            <div><CheckCircle className="mx-auto h-7 w-7 text-green-500 mb-1" /><p className="text-2xl font-bold">{gradingStats.gradedReports}</p><p className="text-sm text-gray-500">已批改</p></div>
-            <div><Award className="mx-auto h-7 w-7 text-purple-500 mb-1" /><p className="text-2xl font-bold">{gradingStats.averageGrade}</p><p className="text-sm text-gray-500">平均分</p></div>
+          <CardContent className="grid grid-cols-2 md:grid-cols-3 gap-4 text-center">
+            <div>
+              <FileText className="mx-auto h-7 w-7 text-blue-500 mb-1" />
+              <p className="text-2xl font-bold">{gradingStats.totalReports}</p>
+              <p className="text-sm text-gray-500">总报告数</p>
+            </div>
+
+            <div>
+              <AlertCircle className="mx-auto h-7 w-7 text-yellow-500 mb-1" />
+              <p className="text-2xl font-bold">
+                {gradingStats.submittedReports - gradingStats.gradedReports}
+              </p>
+              <p className="text-sm text-gray-500">待批改</p>
+            </div>
+
+            <div>
+              <CheckCircle className="mx-auto h-7 w-7 text-green-500 mb-1" />
+              <p className="text-2xl font-bold">{gradingStats.gradedReports}</p>
+              <p className="text-sm text-gray-500">已批改</p>
+            </div>
           </CardContent>
         </Card>
 
@@ -301,8 +378,40 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
                         <div className="grid gap-4 py-4">
                           <div className="grid grid-cols-4 items-center gap-4"><Label className="text-right">任务名称</Label><Input value={newAssignment.taskName} onChange={e => setNewAssignment({ ...newAssignment, taskName: e.target.value })} className="col-span-3" /></div>
                           <div className="grid grid-cols-4 items-center gap-4"><Label className="text-right">选择班级</Label><Select onValueChange={v => setNewAssignment({ ...newAssignment, classId: v, studentId: '' })}><SelectTrigger className="col-span-3"><SelectValue placeholder="选择班级" /></SelectTrigger><SelectContent>{classData?.classes.map(c => <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>)}</SelectContent></Select></div>
-                          <div className="grid grid-cols-4 items-center gap-4"><Label className="text-right">选择学生</Label><Select onValueChange={v => setNewAssignment({ ...newAssignment, studentId: v })} disabled={!newAssignment.classId}><SelectTrigger className="col-span-3"><SelectValue placeholder="默认全班，可单选" /></SelectTrigger><SelectContent>{classData?.studentsMap[Number(newAssignment.classId)]?.map(s => <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>)}</SelectContent></Select></div>
-                          <div className="grid grid-cols-4 items-center gap-4"><Label className="text-right">截止时间</Label><Input type="datetime-local" value={newAssignment.endTime} onChange={e => setNewAssignment({ ...newAssignment, endTime: e.target.value })} className="col-span-3" /></div>
+                          <div className="grid grid-cols-4 items-center gap-4">
+                            <Label className="text-right">开始时间 <span className="text-red-500">*</span></Label>
+                            <Input
+                              type="datetime-local"
+                              value={newAssignment.startTime}
+                              onChange={e => setNewAssignment({ ...newAssignment, startTime: e.target.value })}
+                              className="col-span-3"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-4 items-center gap-4">
+                            <Label className="text-right">截止时间 <span className="text-red-500">*</span></Label>
+                            <Input
+                              type="datetime-local"
+                              value={newAssignment.endTime}
+                              onChange={e => setNewAssignment({ ...newAssignment, endTime: e.target.value })}
+                              className="col-span-3"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-4 items-start gap-4">
+                            <Label className="text-right pt-2">
+                              评分规则 <span className="text-red-500">*</span>
+                              <p className="text-xs text-gray-500 mt-1">
+                                使用JSON格式配置评分标准
+                              </p>
+                            </Label>
+                            <Textarea
+                              value={newAssignment.scoringRules}
+                              onChange={e => setNewAssignment({ ...newAssignment, scoringRules: e.target.value })}
+                              className="col-span-3 font-mono text-sm h-40"
+                              placeholder={`示例格式：\n[\n  {\n    "dimension": "操作准确性",\n    "metric": "DATA_ACCURACY",\n    "points": 50,\n    "expected": {\n      "metricName": "电阻电流",\n      "targetValue": 0.5,\n      "tolerance": 0.05\n    }\n  }\n]`}
+                            />
+                          </div>
                           <div className="grid grid-cols-4 items-start gap-4"><Label className="text-right pt-2">任务要求</Label><Textarea value={newAssignment.requirements} onChange={e => setNewAssignment({ ...newAssignment, requirements: e.target.value })} className="col-span-3" /></div>
                         </div>
                         <DialogFooter><Button onClick={handlePublishAssignment} disabled={publishAssignmentMutation.isPending}>{publishAssignmentMutation.isPending ? "发布中..." : "确认发布"}</Button></DialogFooter>
@@ -323,6 +432,9 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
                     <Button className="w-full" asChild><Link href={`/virtual-lab/grading/${task.id}`}>查看提交与批改</Link></Button>
                   </CardContent>
                 </Card>
+
+
+
               ))}
             </div>
             {teacherTasks.length === 0 && <p className="text-center text-gray-500 py-16">您尚未发布任何任务。</p>}
