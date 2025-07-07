@@ -343,13 +343,18 @@ const getExperimentById = async (id: string): Promise<Experiment> => {
   return normalizeExperiment(responseData.data) // 传递data字段
 }
 
-// 创建新实验
+// 修改 createExperiment 函数以匹配接口
 const createExperiment = async (
     newExperiment: any,
     files: { simulationPackage?: File; thumbnail?: File },
 ): Promise<Experiment> => {
   const token = getAuthToken()
   if (!token) throw new Error("用户未登录")
+
+  // 验证必填字段
+  if (!newExperiment.title) throw new Error("实验标题不能为空")
+  if (!newExperiment.subject) throw new Error("学科不能为空")
+  if (!files.simulationPackage) throw new Error("必须上传仿真包")
 
   // 首先上传文件
   let simulationPackageId, thumbnailId
@@ -390,7 +395,7 @@ const createExperiment = async (
     thumbnailId = thumbData.data.id
   }
 
-  // 创建实验
+  // 创建实验 - 使用接口要求的字段名
   const response = await fetch(`${API_BASE_URL}/experiments`, {
     method: "POST",
     headers: {
@@ -399,16 +404,19 @@ const createExperiment = async (
     },
     body: JSON.stringify({
       title: newExperiment.title,
-      description: newExperiment.description,
-      subject: newExperiment.category,
+      simPackageRid: simulationPackageId, // 接口要求的字段名
+      description: newExperiment.description || "", // 可选字段
+      subject: newExperiment.subject, // 接口要求的字段名（原category）
       difficulty: newExperiment.difficulty,
-      duration: newExperiment.duration,
-      simulationPackageId,
-      thumbnailId,
+      thumbnailUrl: thumbnailId  // 转换为完整URL
     }),
   })
 
-  if (!response.ok) throw new Error("创建实验失败")
+  if (!response.ok) {
+    const errorData = await response.json()
+    throw new Error(errorData.message || "创建实验失败")
+  }
+
   const responseData = await response.json()
   return normalizeExperiment(responseData.data)
 }
@@ -1721,6 +1729,7 @@ function VirtualLabPage() {
                                             </div>
 
                                             <div className="mt-2 flex justify-end">
+                                              看这里
                                               <Button size="sm" variant="outline" asChild disabled={report.status === "未提交"}>
                                                 <Link href={`/virtual-lab/reports/${report.id}`}>
                                                   {report.status === "已批改" ? "查看评分" : "评分"}
@@ -1777,12 +1786,13 @@ function VirtualLabPage() {
                   <DialogContent className="sm:max-w-[600px]">
                     <DialogHeader>
                       <DialogTitle>{isEditing ? "编辑实验" : "创建新实验"}</DialogTitle>
-                      <DialogDescription>填写以下表单来创建或编辑一个虚拟仿真实验。</DialogDescription>
+                      <DialogDescription>填写以下表单来创建虚拟仿真实验。</DialogDescription>
                     </DialogHeader>
                     <div className="grid gap-4 py-4">
+                      {/* 实验标题 - 必填 */}
                       <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="title" className="text-right">
-                          实验标题
+                          实验标题 <span className="text-red-500">*</span>
                         </Label>
                         <Input
                             id="title"
@@ -1790,24 +1800,14 @@ function VirtualLabPage() {
                             onChange={(e) => setNewExperiment({ ...newExperiment, title: e.target.value })}
                             className="col-span-3"
                             placeholder="输入实验标题"
+                            required
                         />
                       </div>
+
+                      {/* 学科 - 必填 */}
                       <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="description" className="text-right">
-                          实验描述
-                        </Label>
-                        <Textarea
-                            id="description"
-                            value={newExperiment.description}
-                            onChange={(e) => setNewExperiment({ ...newExperiment, description: e.target.value })}
-                            className="col-span-3"
-                            placeholder="输入实验描述"
-                            rows={3}
-                        />
-                      </div>
-                      <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="category" className="text-right">
-                          所属学科
+                        <Label htmlFor="catagory" className="text-right">
+                          所属学科 <span className="text-red-500">*</span>
                         </Label>
                         <Select
                             value={newExperiment.category}
@@ -1817,12 +1817,15 @@ function VirtualLabPage() {
                             <SelectValue placeholder="选择学科" />
                           </SelectTrigger>
                           <SelectContent>
+                            <SelectItem value="物理学">物理学</SelectItem>
                             <SelectItem value="化学">化学</SelectItem>
-                            <SelectItem value="物理">物理</SelectItem>
-                            <SelectItem value="生物">生物</SelectItem>
+                            <SelectItem value="生物学">生物学</SelectItem>
+                            <SelectItem value="电子工程">电子工程</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
+
+                      {/* 难度等级 */}
                       <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="difficulty" className="text-right">
                           难度等级
@@ -1845,38 +1848,51 @@ function VirtualLabPage() {
                           </SelectContent>
                         </Select>
                       </div>
+
+                      {/* 实验描述 - 可选 */}
                       <div className="grid grid-cols-4 items-center gap-4">
-                        <Label htmlFor="duration" className="text-right">
-                          预计时长
+                        <Label htmlFor="description" className="text-right">
+                          实验描述
                         </Label>
-                        <Input
-                            id="duration"
-                            type="number"
-                            value={newExperiment.duration}
-                            onChange={(e) =>
-                                setNewExperiment({ ...newExperiment, duration: Number.parseInt(e.target.value) || 0 })
-                            }
+                        <Textarea
+                            id="description"
+                            value={newExperiment.description}
+                            onChange={(e) => setNewExperiment({ ...newExperiment, description: e.target.value })}
                             className="col-span-3"
-                            placeholder="输入预计分钟数"
+                            placeholder="输入实验描述"
+                            rows={3}
                         />
                       </div>
+
+                      {/* 上传仿真包 - 必填 */}
                       <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="package" className="text-right">
-                          上传仿真包
+                          仿真包 <span className="text-red-500">*</span>
                         </Label>
                         <div className="col-span-3">
                           <Input
                               id="package"
                               type="file"
-                              accept=".zip"
+                              accept=".zip,.rar,.7z"
                               onChange={(e) => handleFileUpload(e, setSimulationPackage)}
+                              required
                           />
-                          {simulationPackage && <p className="text-xs mt-1">已选择: {simulationPackage.name}</p>}
+                          {simulationPackage && (
+                              <p className="text-xs mt-1 text-green-600">
+                                已选择: {simulationPackage.name}
+                                ({Math.round(simulationPackage.size / 1024)} MB)
+                              </p>
+                          )}
+                          <p className="text-xs text-gray-500 mt-1">
+                            请上传实验的仿真包文件（ZIP/RAR格式）
+                          </p>
                         </div>
                       </div>
+
+                      {/* 上传封面图 - 可选 */}
                       <div className="grid grid-cols-4 items-center gap-4">
                         <Label htmlFor="thumbnail" className="text-right">
-                          上传封面图
+                          封面图
                         </Label>
                         <div className="col-span-3">
                           <Input
@@ -1885,12 +1901,24 @@ function VirtualLabPage() {
                               accept="image/*"
                               onChange={(e) => handleFileUpload(e, setThumbnailFile)}
                           />
-                          {thumbnailFile && <p className="text-xs mt-1">已选择: {thumbnailFile.name}</p>}
+                          {thumbnailFile && (
+                              <p className="text-xs mt-1 text-green-600">
+                                已选择: {thumbnailFile.name}
+                                ({Math.round(thumbnailFile.size / 1024)} KB)
+                              </p>
+                          )}
+                          <p className="text-xs text-gray-500 mt-1">
+                            建议尺寸 800x450，JPG/PNG格式
+                          </p>
                         </div>
                       </div>
                     </div>
                     <DialogFooter>
-                      <Button type="submit" onClick={handleCreateExperiment} disabled={createExperimentMutation.isPending}>
+                      <Button
+                          type="submit"
+                          onClick={handleCreateExperiment}
+                          disabled={createExperimentMutation.isPending}
+                      >
                         {createExperimentMutation.isPending ? "创建中..." : "创建实验"}
                       </Button>
                     </DialogFooter>
