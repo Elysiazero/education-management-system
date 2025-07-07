@@ -134,7 +134,7 @@ export default function ResourcesPage() {
 
     // 根据标签页过滤
     if (activeTab === 'pending') {
-      filtered = filtered.filter(r => !r.approved)
+      filtered = [...filtered]
     } else if (activeTab === 'recent') {
       // 最近上传：按日期倒序
       filtered = [...filtered]
@@ -259,22 +259,16 @@ export default function ResourcesPage() {
         return
       }
 
-      // 创建临时下载链接 - 先提供即时下载
-      const tempLink = document.createElement('a')
-      tempLink.href = resource.ossUrl
-      tempLink.download = fileName
-      document.body.appendChild(tempLink)
-      tempLink.click()
-      document.body.removeChild(tempLink)
+      // 直接打开下载链接（使用浏览器默认行为）
+      window.open(resource.ossUrl, '_blank')
 
       toast.success(`开始下载: ${fileName}`)
 
       // 异步调用下载API记录下载事件
       try {
-        // 浏览器环境下无法指定具体路径，使用通用路径
         const downloadPath = `/downloads/${fileName}`
-
         const headers = getAuthHeaders();
+
         console.log("下载记录请求:", {
           url: `${API_BASE_URL}/download?fileName=${encodeURIComponent(fileName)}&localFilePath=${encodeURIComponent(downloadPath)}`,
           headers: headers
