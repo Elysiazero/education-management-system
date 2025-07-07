@@ -134,7 +134,7 @@ export default function ResourcesPage() {
 
     // 根据标签页过滤
     if (activeTab === 'pending') {
-      filtered = [...filtered]
+      filtered = filtered.filter(r => !r.approved)
     } else if (activeTab === 'recent') {
       // 最近上传：按日期倒序
       filtered = [...filtered]
