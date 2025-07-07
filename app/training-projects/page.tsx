@@ -229,9 +229,10 @@ const TeamCard = ({
                     variant="outline"
                     size="sm"
                     onClick={() => onGradeTeam && onGradeTeam(team)}
+                    disabled={team.score !== null} // 如果已评分，则禁用按钮
                 >
                   <Star className="w-3 h-3 mr-1 text-yellow-500" />
-                  评分
+                  {team.score !== null ? "已评分" : "评分"} {/* 根据是否已评分显示不同文本 */}
                 </Button>
             )}
           </CardTitle>
@@ -438,6 +439,11 @@ export default function TrainingProjectsPage() {
   const [showGradeTeam, setShowGradeTeam] = useState(false);
   const [showAssignTask, setShowAssignTask] = useState(false);
   const [currentTeamForGrade, setCurrentTeamForGrade] = useState<ProjectTeamDTO | null>(null);
+
+  const handleOpenGradeTeamDialog = useCallback((team: ProjectTeamDTO) => {
+    setCurrentTeamForGrade(team);
+    setShowGradeTeam(true);
+  }, []);
   const [currentTeamForTaskAssignment, setCurrentTeamForTaskAssignment] = useState<ProjectTeamDTO | null>(null);
   const [currentTaskForSubmission, setCurrentTaskForSubmission] = useState<ProjectTaskDTO | null>(null);
   const [currentTaskForEdit, setCurrentTaskForEdit] = useState<ProjectTaskDTO | null>(null);
@@ -795,17 +801,44 @@ export default function TrainingProjectsPage() {
           })
       );
       console.log("带成员的团队列表:", teamsWithMembers);
+
+      // 6. 获取团队评分信息
+      console.log("获取团队评分信息...");
+      const teamsWithMembersAndGrades = await Promise.all(
+          teamsWithMembers.map(async (team: ProjectTeamDTO) => {
+            try {
+              console.log(`获取团队 ${team.id} 的评分...`);
+              const gradesResponse = await fetch(
+                  `${API_BASE_URL}/teams/${team.id}/grades`,
+                  { headers: { Authorization: `Bearer ${token}` } }
+              );
+
+              if (gradesResponse.ok) {
+                const gradeData = await gradesResponse.json();
+                console.log(`团队 ${team.id} 评分:`, gradeData);
+                return { ...team, score: gradeData.score, feedback: gradeData.feedback };
+              } else {
+                console.warn(`获取团队 ${team.id} 评分失败: ${gradesResponse.status}`);
+                return team; // 返回原始团队信息
+              }
+            } catch (err) {
+              console.error(`获取团队 ${team.id} 评分失败:`, err);
+              return team; // 返回原始团队信息
+            }
+          })
+      );
       // =================== 关键修复部分结束 ===================
 
-      // 6. 获取用户团队信息
+      // 7. 获取用户团队信息
       const userTeamData = await fetchUserTeam(projectId);
       setUserTeam(userTeamData);
 
-      // 7. 创建完整的项目对象
+
+      // 8. 创建完整的项目对象
       const completeProject: ProjectDetailDTO = {
         ...projectDetail,
         tasks,
-        teams: teamsWithMembers, // 使用带成员的团队列表
+        teams: teamsWithMembersAndGrades, // 使用带成员和评分的团队列表
         comments: commentsData,
         assignedStudents: projectDetail.assignedStudents || []
       };
@@ -1224,7 +1257,7 @@ export default function TrainingProjectsPage() {
   };
 
   // 评分团队
-  const handleGradeTeam = async () => {
+  const submitTeamGrade = async () => {
     if (!currentTeamForGrade || !user || !selectedProject) return;
 
     try {
@@ -1254,12 +1287,28 @@ export default function TrainingProjectsPage() {
         },
         body: JSON.stringify(gradeData)
       });
+      console.log("评分回应",response);
 
       if (!response.ok) {
         throw new Error("评分失败");
       }
 
-      const updatedTeam = await response.json();
+      // 检查Content-Type，确保只有在响应包含JSON时才尝试解析
+      const contentType = response.headers.get("content-type");
+      let updatedTeam = null;
+      if (contentType && contentType.includes("application/json")) {
+        updatedTeam = await response.json();
+      } else if (response.status === 200 || response.status === 204) {
+        // 如果状态码是200或204但没有JSON，则认为成功，不尝试解析
+        console.log("评分成功，但响应体为空或非JSON。");
+      } else {
+        throw new Error("评分失败：非预期的响应格式");
+      }
+
+      // 如果updatedTeam为空，则使用currentTeamForGrade作为基础，避免后续操作报错
+      if (!updatedTeam) {
+        updatedTeam = { ...currentTeamForGrade, score: gradeData.score, feedback: gradeData.feedback };
+      }
       console.log("团队评分响应数据:", updatedTeam);
 
       // 更新团队列表
@@ -1743,7 +1792,7 @@ export default function TrainingProjectsPage() {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {(selectedProject?.teams || []).map(team => (
-                        team ? <TeamCard key={team.id} team={team} user={user} /> : null
+                        team ? <TeamCard key={team.id} team={team} user={user} onGradeTeam={handleOpenGradeTeamDialog} /> : null
                     ))}
                   </div>
                 </div>
@@ -2222,7 +2271,7 @@ export default function TrainingProjectsPage() {
                       rows={4}
                   />
                 </div>
-                <Button onClick={handleGradeTeam} disabled={loading}>
+                <Button onClick={submitTeamGrade} disabled={loading}>
                   提交评分
                 </Button>
               </div>
