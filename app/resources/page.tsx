@@ -212,7 +212,7 @@ export default function ResourcesPage() {
     try {
 
       const headers = getAuthHeadersFormData();
-      
+
       const response = await fetch(`${API_BASE_URL}/upload`, {
         method: 'POST',
         body: formData,
@@ -548,7 +548,7 @@ export default function ResourcesPage() {
           ) : (
               <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
                 <TabsList>
-                  <TabsTrigger value="all">全部资源</TabsTrigger>
+                  <TabsTrigger value="all">默认推荐</TabsTrigger>
                   <TabsTrigger value="recent">最近上传</TabsTrigger>
                   <TabsTrigger value="popular">热门下载</TabsTrigger>
                   <TabsTrigger value="favorites">我的收藏</TabsTrigger>
