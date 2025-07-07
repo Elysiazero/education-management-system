@@ -14,6 +14,7 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
@@ -62,6 +63,11 @@ export default function ResourcesPage() {
   const router = useRouter()
   const API_BASE_URL = "http://localhost:8080";
 
+  // 下载对话框状态
+  const [showDownloadDialog, setShowDownloadDialog] = useState(false)
+  const [selectedResource, setSelectedResource] = useState<Resource | null>(null)
+  const [downloadPath, setDownloadPath] = useState('')
+
   // 获取认证头部
   const getAuthHeaders = () => {
     const token = localStorage.getItem('accessToken');
@@ -98,18 +104,11 @@ export default function ResourcesPage() {
   const fetchResources = async () => {
     setIsLoading(true)
     try {
-      console.log("正在获取资源列表...");
-      const response = await fetch(`${API_BASE_URL}/oss/check/all?page=1&size=100`, {
+      const response = await fetch(`${API_BASE_URL}/oss/check?page=1&size=100`, {
         headers: getAuthHeaders()
       })
 
-      console.log("资源列表请求:", {
-        url: `${API_BASE_URL}/oss/check/all?page=1&size=100`,
-        headers: getAuthHeaders()
-      });
-
       const data = await response.json()
-      console.log("资源列表响应:", data);
 
       if (data.code === 200) {
         const resourcesWithStatus = data.data.records.map((res: any) => ({
@@ -189,99 +188,101 @@ export default function ResourcesPage() {
   }
 
   const handleUpload = async () => {
+    console.log('开始上传流程...');
+
     if (!newResource.file) {
-      toast.error('请选择要上传的文件')
-      return
+      toast.error('请选择要上传的文件');
+      console.warn('上传中止：未选择文件');
+      return;
     }
 
-    const formData = new FormData()
-    formData.append('userName', newResource.userName)
-    formData.append('description', newResource.description)
-    formData.append('fileName', newResource.fileName)
-    formData.append('resourceType', newResource.resourceType)
+    console.log('创建FormData对象...');
+    const formData = new FormData();
 
-    // 添加fileURL参数（文档要求）
-    const fileURL = URL.createObjectURL(newResource.file)
-    formData.append('fileURL', fileURL)
+    // 使用username字段（小写）并添加用户信息
+    const userNameValue = user?.name || '';
+    formData.append('username', userNameValue); // 修改为小写username
+    formData.append('description', newResource.description);
+    formData.append('fileName', newResource.fileName);
+    formData.append('resourceType', newResource.resourceType);
 
     // 添加文件
-    formData.append('file', newResource.file)
+    formData.append('file', newResource.file);
 
     try {
-      console.log("上传表单数据:", {
-        userName: newResource.userName,
-        description: newResource.description,
-        fileName: newResource.fileName,
-        resourceType: newResource.resourceType,
-        fileURL: fileURL
-      });
 
       const headers = getAuthHeadersFormData();
-      console.log("上传请求头:", headers);
 
       const response = await fetch(`${API_BASE_URL}/upload`, {
         method: 'POST',
         body: formData,
         headers: headers
-      })
+      });
 
-      const result = await response.text()
-      console.log("上传响应:", result);
+      console.log(`收到响应，状态码: ${response.status}`);
 
-      if (response.ok) {
-        toast.success('资源上传成功')
-        fetchResources()
-        setNewResource({
-          fileName: '',
-          description: '',
-          resourceType: 'PDF',
-          userName: user?.name || '',
-          file: null
-        })
-        setShowUpload(false)
-      } else {
-        toast.error('上传失败: ' + result)
+      try {
+        const result = await response.json();
+        console.log('完整响应结果:', result);
+
+        if (response.ok) {
+          toast.success('资源上传成功');
+          console.log('上传成功，刷新资源列表...');
+          fetchResources();
+
+          // 重置表单
+          setNewResource({
+            fileName: '',
+            description: '',
+            resourceType: 'PDF',
+            userName: userNameValue,
+            file: null
+          });
+          setShowUpload(false);
+        } else {
+          toast.error(`上传失败: ${result.message || '未知错误'}`);
+          console.error('服务器返回错误:', result);
+        }
+      } catch (jsonError) {
+        const textResult = await response.text();
+        console.error('JSON解析失败，原始响应:', textResult);
+        toast.error(`响应解析错误: ${(jsonError as Error).message}`);
       }
     } catch (error) {
-      toast.error('上传失败: ' + (error as Error).message)
-    } finally {
-      // 清理临时URL
-      URL.revokeObjectURL(fileURL)
+      const err = error as Error;
+      console.error('网络请求失败:', err);
+      toast.error(`网络错误: ${err.message}`);
     }
+  };
+
+  // 打开下载对话框
+  const openDownloadDialog = (resource: Resource) => {
+    setSelectedResource(resource)
+    // 设置默认下载路径为文件名
+    setDownloadPath(`/downloads/${resource.fileName}`)
+    setShowDownloadDialog(true)
   }
 
-  const handleDownload = async (fileName: string) => {
-    try {
-      // 获取资源详情
-      const resource = resources.find(r => r.fileName === fileName)
-      if (!resource) {
-        toast.error('找不到资源信息')
-        return
-      }
+  // 处理下载
+  const handleDownload = async () => {
+    if (!selectedResource) return
 
-      // 创建临时下载链接 - 先提供即时下载
+    try {
+      // 创建临时下载链接
       const tempLink = document.createElement('a')
-      tempLink.href = resource.ossUrl
-      tempLink.download = fileName
+      tempLink.href = selectedResource.ossUrl
+      tempLink.download = selectedResource.fileName
       document.body.appendChild(tempLink)
       tempLink.click()
       document.body.removeChild(tempLink)
 
-      toast.success(`开始下载: ${fileName}`)
+      toast.success(`开始下载: ${selectedResource.fileName}`)
 
       // 异步调用下载API记录下载事件
       try {
-        // 浏览器环境下无法指定具体路径，使用通用路径
-        const downloadPath = `/downloads/${fileName}`
-
         const headers = getAuthHeaders();
-        console.log("下载记录请求:", {
-          url: `${API_BASE_URL}/download?fileName=${encodeURIComponent(fileName)}&localFilePath=${encodeURIComponent(downloadPath)}`,
-          headers: headers
-        });
-
         const downloadResponse = await fetch(
-            `${API_BASE_URL}/download?fileName=${encodeURIComponent(fileName)}&localFilePath=${encodeURIComponent(downloadPath)}`,
+            `${API_BASE_URL}/download?fileName=${encodeURIComponent(selectedResource.fileName)}&localFilePath=${encodeURIComponent(downloadPath)}`,
             { headers }
         )
 
@@ -296,6 +297,8 @@ export default function ResourcesPage() {
       }
     } catch (error) {
       toast.error('下载失败: ' + (error as Error).message)
+    } finally {
+      setShowDownloadDialog(false)
     }
   }
 
@@ -309,12 +312,6 @@ export default function ResourcesPage() {
 
     try {
       const headers = getAuthHeaders();
-      console.log("删除资源请求:", {
-        url: `${API_BASE_URL}/delete?fileName=${encodeURIComponent(fileName)}`,
-        method: 'DELETE',
-        headers: headers
-      });
-
       const response = await fetch(
           `${API_BASE_URL}/delete?fileName=${encodeURIComponent(fileName)}`,
           {
@@ -324,7 +321,6 @@ export default function ResourcesPage() {
       )
 
       const result = await response.text()
-      console.log("删除响应:", result);
 
       if (response.ok) {
         toast.success('资源删除成功')
@@ -349,14 +345,8 @@ export default function ResourcesPage() {
       const headers = getAuthHeaders();
       const url = `${API_BASE_URL}/oss/check/combined?${params.toString()}`
 
-      console.log("组合查询请求:", {
-        url,
-        headers
-      });
-
       const response = await fetch(url, { headers })
       const data = await response.json()
-      console.log("组合查询响应:", data);
 
       if (data.code === 200) {
         setFilteredResources(data.data)
@@ -392,14 +382,8 @@ export default function ResourcesPage() {
       const headers = getAuthHeaders();
       const url = `${API_BASE_URL}/oss/check/search-by-project-title?keyword=${encodeURIComponent(projectName)}`
 
-      console.log("项目资源请求:", {
-        url,
-        headers
-      });
-
       const response = await fetch(url, { headers })
       const data = await response.json()
-      console.log("项目资源响应:", data);
 
       if (data.code === 200) {
         setFilteredResources(data.data)
@@ -545,10 +529,6 @@ export default function ResourcesPage() {
                   项目相关资源
                 </Button>
 
-                <Button variant="outline">
-                  <Filter className="w-4 h-4 mr-2" />
-                  高级筛选
-                </Button>
                 <Button
                     variant="outline"
                     onClick={handleCombinedSearch}
@@ -568,7 +548,7 @@ export default function ResourcesPage() {
           ) : (
               <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
                 <TabsList>
-                  <TabsTrigger value="all">全部资源</TabsTrigger>
+                  <TabsTrigger value="all">默认推荐</TabsTrigger>
                   <TabsTrigger value="recent">最近上传</TabsTrigger>
                   <TabsTrigger value="popular">热门下载</TabsTrigger>
                   <TabsTrigger value="favorites">我的收藏</TabsTrigger>
@@ -613,7 +593,7 @@ export default function ResourcesPage() {
                               </Button>
                               <Button
                                   size="sm"
-                                  onClick={() => handleDownload(resource.fileName)}
+                                  onClick={() => openDownloadDialog(resource)}
                               >
                                 <Download className="w-4 h-4 mr-2" />
                                 下载资源
@@ -650,7 +630,7 @@ export default function ResourcesPage() {
                               </Button>
                               <Button
                                   size="sm"
-                                  onClick={() => handleDownload(resource.fileName)}
+                                  onClick={() => openDownloadDialog(resource)}
                               >
                                 <Download className="w-4 h-4 mr-2" />
                                 下载
@@ -684,7 +664,7 @@ export default function ResourcesPage() {
                               <span className="text-sm text-gray-600">{resource.userName}</span>
                               <Button
                                   size="sm"
-                                  onClick={() => handleDownload(resource.fileName)}
+                                  onClick={() => openDownloadDialog(resource)}
                               >
                                 <Download className="w-4 h-4 mr-2" />
                                 下载
@@ -757,6 +737,43 @@ export default function ResourcesPage() {
               </Tabs>
           )}
         </div>
+
+        {/* 下载对话框 */}
+        <Dialog open={showDownloadDialog} onOpenChange={setShowDownloadDialog}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>下载资源</DialogTitle>
+              <DialogDescription>请选择下载路径</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label>资源名称</Label>
+                <Input
+                    value={selectedResource?.fileName || ''}
+                    readOnly
+                />
+              </div>
+              <div>
+                <Label htmlFor="downloadPath">下载路径</Label>
+                <Input
+                    id="downloadPath"
+                    value={downloadPath}
+                    onChange={(e) => setDownloadPath(e.target.value)}
+                    placeholder="输入下载路径"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowDownloadDialog(false)}>
+                取消
+              </Button>
+              <Button onClick={handleDownload}>
+                <Download className="w-4 h-4 mr-2" />
+                下载
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
   )
 }
