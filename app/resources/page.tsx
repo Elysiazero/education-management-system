@@ -134,7 +134,7 @@ export default function ResourcesPage() {
 
     // 根据标签页过滤
     if (activeTab === 'pending') {
-      filtered = filtered.filter(r => !r.approved)
+      filtered = [...filtered]
     } else if (activeTab === 'recent') {
       // 最近上传：按日期倒序
       filtered = [...filtered]
@@ -259,16 +259,27 @@ export default function ResourcesPage() {
         return
       }
 
-      // 直接打开下载链接（使用浏览器默认行为）
-      window.open(resource.ossUrl, '_blank')
+      // 创建临时下载链接 - 确保浏览器直接下载文件
+      const tempLink = document.createElement('a')
+      tempLink.href = resource.ossUrl
+      tempLink.download = fileName; // 确保设置下载文件名
+      tempLink.style.display = 'none'; // 隐藏元素
+      document.body.appendChild(tempLink)
+      tempLink.click()
+
+      // 延迟移除元素，确保点击事件完成
+      setTimeout(() => {
+        document.body.removeChild(tempLink)
+      }, 100)
 
       toast.success(`开始下载: ${fileName}`)
 
       // 异步调用下载API记录下载事件
       try {
+        // 浏览器环境下无法指定具体路径，使用通用路径
         const downloadPath = `/downloads/${fileName}`
-        const headers = getAuthHeaders();
 
+        const headers = getAuthHeaders();
         console.log("下载记录请求:", {
           url: `${API_BASE_URL}/download?fileName=${encodeURIComponent(fileName)}&localFilePath=${encodeURIComponent(downloadPath)}`,
           headers: headers
@@ -562,7 +573,7 @@ export default function ResourcesPage() {
           ) : (
               <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
                 <TabsList>
-                  <TabsTrigger value="all">全部资源</TabsTrigger>
+                  <TabsTrigger value="all">为你推荐</TabsTrigger>
                   <TabsTrigger value="recent">最近上传</TabsTrigger>
                   <TabsTrigger value="popular">热门下载</TabsTrigger>
                   <TabsTrigger value="favorites">我的收藏</TabsTrigger>
