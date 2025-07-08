@@ -137,19 +137,13 @@ export default function ResourcesPage() {
 
     // 根据标签页过滤
     if (activeTab === 'pending') {
-      filtered = [...filtered]
+      filtered = filtered.filter(r => !r.approved)
     } else if (activeTab === 'recent') {
       // 最近上传：按日期倒序
       filtered = [...filtered]
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
           .slice(0, 5)
-    } else if (activeTab === 'popular') {
-      // 热门下载：模拟下载量排序
-      filtered = [...filtered]
-          .sort((a, b) =>
-              (b.metadata?.size || '0MB').localeCompare(a.metadata?.size || '0MB'))
-          .slice(0, 5)
-    } else {
+    }  else {
       // 为你推荐
       filtered = [...filtered]
     }
@@ -196,7 +190,14 @@ export default function ResourcesPage() {
       toast.error('请选择要上传的文件')
       return
     }
+    const userData = localStorage.getItem('user')
+    if (!userData) {
+      alert("用户信息不存在，请重新登录");
+      return;
+    }
 
+    const parsedUser = JSON.parse(userData)
+    newResource.userName = parsedUser.userName
     // 打印当前用户信息用于调试
     console.log("当前用户信息:", user);
     console.log("上传使用的用户名:", newResource.userName);
@@ -639,8 +640,7 @@ export default function ResourcesPage() {
                 <TabsList>
                   <TabsTrigger value="all">为你推荐</TabsTrigger>
                   <TabsTrigger value="recent">最近上传</TabsTrigger>
-                  <TabsTrigger value="popular">热门下载</TabsTrigger>
-                  <TabsTrigger value="favorites">我的收藏</TabsTrigger>
+
                   {(user.role === 'teacher' || user.role === 'admin') && (
                       <TabsTrigger value="pending">待审核</TabsTrigger>
                   )}
