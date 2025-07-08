@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useMemo, useEffect } from "react"
+import { useState, useMemo } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -14,13 +14,24 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import Link from "next/link"
-import { Star, Plus, Send, FileText, AlertCircle, CheckCircle, Award, Microscope, Atom, Beaker, FlaskConical } from "lucide-react"
+import { Star, Plus, Send, FileText, AlertCircle, CheckCircle, Download, Award, Microscope, Atom, Beaker, FlaskConical } from "lucide-react"
 
 // =================================================================
 // 1. Type Definitions
 // =================================================================
 interface UserType { id: string; name: string; role: "student" | "teacher" | "admin"; }
-interface Experiment { id: string; title: string; description: string; category: string; difficulty: number; duration: number; creator: string; thumbnail: string; }
+interface Experiment {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  difficulty: number;
+  duration: number;
+  creator: string;
+  thumbnail: string;
+  simPackageUrl: string;
+  fileName: string;
+}
 interface Assignment { id: string; taskName: string; className: string; classId: string; experimentId: string; experimentTitle?: string; startTime: string; endTime: string; }
 interface TaskReport { id: string; studentName: string; status: "未提交" | "已提交" | "已批改"; grade?: number; }
 interface ClassDTO { id: number; name: string; }
@@ -32,8 +43,15 @@ interface TeacherDashboardProps { user: UserType; }
 // 2. API Request Functions
 // =================================================================
 const API_BASE_URL = "http://localhost:8080/api/v1/teaching"
-const RESOURCE_BASE_URL = "http://localhost:8080"
+const UPLOAD_BASE_URL = "http://localhost:8080"
 const getAuthToken = () => typeof window !== "undefined" ? localStorage.getItem("accessToken") : null
+
+// @notice OSS 配置，用于拼接封面图 URL
+const OSS_BUCKET_INFO = {
+  ENDPOINT: "oss-cn-chengdu.aliyuncs.com",
+  BUCKET_NAME: "plantform-resource"
+};
+const BUCKET_URL = `https://${OSS_BUCKET_INFO.BUCKET_NAME}.${OSS_BUCKET_INFO.ENDPOINT}`;
 
 const normalizeExperiment = (record: any): Experiment => ({
   id: String(record.id),
@@ -44,6 +62,8 @@ const normalizeExperiment = (record: any): Experiment => ({
   duration: record.duration || 30,
   creator: record.creator?.realName || "系统",
   thumbnail: record.thumbnailUrl || "",
+  simPackageUrl: record.simPackageUrl || "", // 处理仿真包URL
+  fileName: record.fileName || "download.zip" // 处理文件名
 });
 
 const mapReportStatus = (status: string): "未提交" | "已提交" | "已批改" => {
@@ -66,32 +86,88 @@ const normalizeAssignment = (task: any): Assignment => ({
   endTime: task.endTime || new Date().toISOString(),
 });
 
-const createExperiment = async (newExperiment: any, files: { simulationPackage?: File; thumbnail?: File }): Promise<Experiment> => {
+/**
+ * @notice 更新：上传文件并从返回的文本中解析出 objectKey
+ */
+const uploadAndGetObjectKey = async (
+  file: File,
+  resourceType: string,
+  user: UserType,
+  description: string = ""
+): Promise<string> => {
   const token = getAuthToken();
   if (!token) throw new Error("用户未登录");
-  if (!newExperiment.title || !newExperiment.subject || !files.simulationPackage) throw new Error("标题、学科和仿真包为必填项");
 
-  const uploadFile = async (file: File, type: string) => {
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("type", type);
-    const res = await fetch(`${RESOURCE_BASE_URL}/upload`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: formData });
-    if (!res.ok) throw new Error(`上传 ${type} 失败`);
-    return (await res.json()).data.id;
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("userName", user.name);
+  formData.append("fileName", file.name);
+  formData.append("resourceType", resourceType);
+  formData.append("description", description);
+
+  const res = await fetch(`${UPLOAD_BASE_URL}/upload`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+
+  const responseText = await res.text();
+  if (!res.ok) {
+    throw new Error(responseText || "文件上传失败");
+  }
+
+  // 从 "文件上传并保存成功! ObjectKey: xxx" 中解析出 objectKey
+  const objectKey = responseText.split("ObjectKey: ")[1];
+  if (!objectKey) {
+    throw new Error("无法从上传响应中解析出 ObjectKey");
+  }
+  return objectKey.trim();
+};
+
+/**
+ * @notice 新增：完整的创建实验流程函数
+ */
+const createExperiment = async (
+  newExperimentData: any,
+  files: { simulationPackage?: File; thumbnail?: File },
+  user: UserType
+): Promise<Experiment> => {
+  const token = getAuthToken();
+  if (!token) throw new Error("用户未登录");
+  if (!files.simulationPackage) throw new Error("必须提供仿真包文件");
+
+  // 第 1 步: 上传仿真包并获取其 objectKey
+  const simPackageObjectKey = await uploadAndGetObjectKey(files.simulationPackage, "SIMULATION_PACKAGE", user, `仿真包: ${newExperimentData.title}`);
+
+  // 第 2 步: 如果有封面图，上传并构建其 URL
+  let thumbnailUrl: string | undefined = undefined;
+  if (files.thumbnail) {
+    const thumbnailObjectKey = await uploadAndGetObjectKey(files.thumbnail, "IMAGE", user, `封面图: ${newExperimentData.title}`);
+    thumbnailUrl = `${BUCKET_URL}/${thumbnailObjectKey}`;
+  }
+
+  // 第 3 步: 准备最终提交的数据
+  const payload = {
+    ...newExperimentData,
+    simPackageObjectKey: simPackageObjectKey,
+    thumbnailUrl: thumbnailUrl,
   };
 
-  const simPackageRid = await uploadFile(files.simulationPackage, "SIMULATION_PACKAGE");
-  const thumbnailUrl = files.thumbnail ? await uploadFile(files.thumbnail, "IMAGE") : undefined;
-
+  // 第 4 步: 调用创建实验的 API
   const response = await fetch(`${API_BASE_URL}/experiments`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify({ ...newExperiment, simPackageRid, thumbnailUrl }),
+    body: JSON.stringify(payload),
   });
 
-  if (!response.ok) throw new Error((await response.json()).message || "创建实验失败");
-  return normalizeExperiment((await response.json()).data);
+  if (!response.ok) {
+    const errorData = await response.json();
+    throw new Error(errorData.message || "创建实验记录失败");
+  }
+  const result = await response.json();
+  return normalizeExperiment(result.data);
 };
+
 const publishAssignment = async (assignmentData: any): Promise<Assignment> => {
   const token = getAuthToken();
   if (!token) throw new Error("用户未登录");
@@ -188,8 +264,9 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
   const [isPublishing, setIsPublishing] = useState(false);
   const [currentExperiment, setCurrentExperiment] = useState<Experiment | null>(null);
   const [newExperiment, setNewExperiment] = useState({ title: "", description: "", subject: "化学", difficulty: 3 });
-  const [simulationPackage, setSimulationPackage] = useState<File | null>(null);
-  const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
+  // @notice 修改：将 useState 的初始值从 null 改为 undefined，以匹配函数签名
+  const [simulationPackage, setSimulationPackage] = useState<File | undefined>(undefined);
+  const [thumbnailFile, setThumbnailFile] = useState<File | undefined>(undefined);
   const [newAssignment, setNewAssignment] = useState({
     taskName: "",
     classId: "",
@@ -260,11 +337,15 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
 
   // Mutations
   const createExperimentMutation = useMutation({
-    mutationFn: (vars: { newExperiment: any; files: any }) => createExperiment(vars.newExperiment, vars.files),
+    mutationFn: () => createExperiment(newExperiment, { simulationPackage, thumbnail: thumbnailFile }, user),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["experiments"] });
       setIsCreating(false);
       alert("实验创建成功！");
+      // 重置表单
+      setNewExperiment({ title: "", description: "", subject: "化学", difficulty: 3 });
+      setSimulationPackage(undefined);
+      setThumbnailFile(undefined);
     },
     onError: (error: Error) => alert(`创建失败: ${error.message}`),
   });
@@ -280,7 +361,35 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
   });
 
   // Handlers
-  const handleCreateExperiment = () => createExperimentMutation.mutate({ newExperiment, files: { simulationPackage, thumbnail: thumbnailFile } });
+  const handleCreateExperiment = () => {
+    if (!simulationPackage) {
+      alert("请务必上传一个仿真包文件。");
+      return;
+    }
+    createExperimentMutation.mutate();
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: React.Dispatch<React.SetStateAction<File | undefined>>) => {
+    if (e.target.files?.[0]) {
+      setter(e.target.files[0]);
+    } else {
+      setter(undefined);
+    }
+  };
+
+  const handleDownload = (url: string, fileName: string) => {
+    if (!url) {
+      alert("此实验没有可用的下载链接。");
+      return;
+    }
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', fileName);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const handlePublishAssignment = () => {
     if (!currentExperiment || !newAssignment.classId) return alert("请选择实验和班级");
     const studentIds = newAssignment.studentId ? [newAssignment.studentId] : classData?.studentsMap[Number(newAssignment.classId)]?.map(s => s.id.toString()) || [];
@@ -301,9 +410,6 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
     }
     publishAssignmentMutation.mutate({ ...newAssignment, experimentId: currentExperiment.id, studentIds });
   };
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, setter: React.Dispatch<React.SetStateAction<File | null>>) => {
-    if (e.target.files?.[0]) setter(e.target.files[0]);
-  };
 
   // Render Helpers
   const renderStarRating = (d: number) => <div className="flex">{[...Array(5)].map((_, i) => <Star key={i} className={`w-4 h-4 ${i < d ? "fill-yellow-400 text-yellow-400" : "text-gray-300"}`} />)}</div>;
@@ -320,15 +426,19 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
           <Dialog open={isCreating} onOpenChange={setIsCreating}>
             <DialogTrigger asChild><Button><Plus className="w-4 h-4 mr-2" /> 新建实验</Button></DialogTrigger>
             <DialogContent className="sm:max-w-[600px]">
-              <DialogHeader><DialogTitle>创建新实验</DialogTitle><DialogDescription>填写以下表单来创建虚拟仿真实验。</DialogDescription></DialogHeader>
+              <DialogHeader><DialogTitle>创建新实验</DialogTitle><DialogDescription>填写实验详情并上传所需文件，点击按钮即可完成创建。</DialogDescription></DialogHeader>
               <div className="grid gap-4 py-4">
                 <div className="grid grid-cols-4 items-center gap-4"><Label htmlFor="title" className="text-right">实验标题 <span className="text-red-500">*</span></Label><Input id="title" value={newExperiment.title} onChange={e => setNewExperiment({ ...newExperiment, title: e.target.value })} className="col-span-3" /></div>
                 <div className="grid grid-cols-4 items-center gap-4"><Label htmlFor="subject" className="text-right">所属学科 <span className="text-red-500">*</span></Label><Select value={newExperiment.subject} onValueChange={v => setNewExperiment({ ...newExperiment, subject: v })}><SelectTrigger className="col-span-3"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="化学">化学</SelectItem><SelectItem value="物理">物理</SelectItem><SelectItem value="生物">生物</SelectItem></SelectContent></Select></div>
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <Label htmlFor="difficulty" className="text-right">难度等级</Label>
+                  <Input id="difficulty" type="number" min="1" max="5" value={newExperiment.difficulty} onChange={e => setNewExperiment({ ...newExperiment, difficulty: parseInt(e.target.value, 10) || 1 })} className="col-span-3" />
+                </div>
                 <div className="grid grid-cols-4 items-center gap-4"><Label htmlFor="desc" className="text-right">实验描述</Label><Textarea id="desc" value={newExperiment.description} onChange={e => setNewExperiment({ ...newExperiment, description: e.target.value })} className="col-span-3" /></div>
                 <div className="grid grid-cols-4 items-center gap-4"><Label htmlFor="package" className="text-right">仿真包 <span className="text-red-500">*</span></Label><Input id="package" type="file" onChange={e => handleFileUpload(e, setSimulationPackage)} className="col-span-3" /></div>
                 <div className="grid grid-cols-4 items-center gap-4"><Label htmlFor="thumbnail" className="text-right">封面图</Label><Input id="thumbnail" type="file" accept="image/*" onChange={e => handleFileUpload(e, setThumbnailFile)} className="col-span-3" /></div>
               </div>
-              <DialogFooter><Button onClick={handleCreateExperiment} disabled={createExperimentMutation.isPending}>{createExperimentMutation.isPending ? "创建中..." : "创建"}</Button></DialogFooter>
+              <DialogFooter><Button onClick={handleCreateExperiment} disabled={createExperimentMutation.isPending}>{createExperimentMutation.isPending ? "创建中..." : "确认创建"}</Button></DialogFooter>
             </DialogContent>
           </Dialog>
         </div>
@@ -367,56 +477,61 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
             <Card className="mb-6"><CardContent className="pt-6 flex flex-col md:flex-row gap-4"><Input placeholder="搜索实验..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="flex-grow" /><Select value={categoryFilter} onValueChange={setCategoryFilter}><SelectTrigger className="w-full md:w-[180px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">所有学科</SelectItem><SelectItem value="化学">化学</SelectItem><SelectItem value="物理">物理</SelectItem><SelectItem value="生物">生物</SelectItem></SelectContent></Select><Select value={difficultyFilter} onValueChange={setDifficultyFilter}><SelectTrigger className="w-full md:w-[180px]"><SelectValue /></SelectTrigger><SelectContent><SelectItem value="all">所有难度</SelectItem><SelectItem value="1">1星</SelectItem><SelectItem value="2">2星</SelectItem><SelectItem value="3">3星</SelectItem><SelectItem value="4">4星</SelectItem><SelectItem value="5">5星</SelectItem></SelectContent></Select></CardContent></Card>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filteredExperiments.map(exp => (
-                <Card key={exp.id}>
+                <Card key={exp.id} className="flex flex-col">
                   <CardHeader><CardTitle>{exp.title}</CardTitle><CardDescription className="h-10 overflow-hidden">{exp.description}</CardDescription></CardHeader>
-                  <CardContent>
+                  <CardContent className="flex-grow flex flex-col justify-between">
                     <div className="flex justify-between items-center mb-4"><Badge variant="secondary">{exp.category}</Badge>{renderStarRating(exp.difficulty)}</div>
-                    <Dialog open={isPublishing && currentExperiment?.id === exp.id} onOpenChange={(open) => !open && setIsPublishing(false)}>
-                      <DialogTrigger asChild><Button className="w-full" onClick={() => { setIsPublishing(true); setCurrentExperiment(exp); }}><Send className="w-4 h-4 mr-2" /> 发布任务</Button></DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader><DialogTitle>发布任务: {exp.title}</DialogTitle></DialogHeader>
-                        <div className="grid gap-4 py-4">
-                          <div className="grid grid-cols-4 items-center gap-4"><Label className="text-right">任务名称</Label><Input value={newAssignment.taskName} onChange={e => setNewAssignment({ ...newAssignment, taskName: e.target.value })} className="col-span-3" /></div>
-                          <div className="grid grid-cols-4 items-center gap-4"><Label className="text-right">选择班级</Label><Select onValueChange={v => setNewAssignment({ ...newAssignment, classId: v, studentId: '' })}><SelectTrigger className="col-span-3"><SelectValue placeholder="选择班级" /></SelectTrigger><SelectContent>{classData?.classes.map(c => <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>)}</SelectContent></Select></div>
-                          <div className="grid grid-cols-4 items-center gap-4">
-                            <Label className="text-right">开始时间 <span className="text-red-500">*</span></Label>
-                            <Input
-                              type="datetime-local"
-                              value={newAssignment.startTime}
-                              onChange={e => setNewAssignment({ ...newAssignment, startTime: e.target.value })}
-                              className="col-span-3"
-                            />
-                          </div>
+                    <div className="flex gap-2 mt-auto">
+                      <Button variant="outline" className="w-full" onClick={() => handleDownload(exp.simPackageUrl, exp.fileName)}>
+                        <Download className="w-4 h-4 mr-2" /> 下载
+                      </Button>
+                      <Dialog open={isPublishing && currentExperiment?.id === exp.id} onOpenChange={(open) => !open && setIsPublishing(false)}>
+                        <DialogTrigger asChild><Button className="w-full" onClick={() => { setIsPublishing(true); setCurrentExperiment(exp); }}><Send className="w-4 h-4 mr-2" /> 发布任务</Button></DialogTrigger>
+                        <DialogContent>
+                          <DialogHeader><DialogTitle>发布任务: {exp.title}</DialogTitle></DialogHeader>
+                          <div className="grid gap-4 py-4">
+                            <div className="grid grid-cols-4 items-center gap-4"><Label className="text-right">任务名称</Label><Input value={newAssignment.taskName} onChange={e => setNewAssignment({ ...newAssignment, taskName: e.target.value })} className="col-span-3" /></div>
+                            <div className="grid grid-cols-4 items-center gap-4"><Label className="text-right">选择班级</Label><Select onValueChange={v => setNewAssignment({ ...newAssignment, classId: v, studentId: '' })}><SelectTrigger className="col-span-3"><SelectValue placeholder="选择班级" /></SelectTrigger><SelectContent>{classData?.classes.map(c => <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>)}</SelectContent></Select></div>
+                            <div className="grid grid-cols-4 items-center gap-4">
+                              <Label className="text-right">开始时间 <span className="text-red-500">*</span></Label>
+                              <Input
+                                type="datetime-local"
+                                value={newAssignment.startTime}
+                                onChange={e => setNewAssignment({ ...newAssignment, startTime: e.target.value })}
+                                className="col-span-3"
+                              />
+                            </div>
 
-                          <div className="grid grid-cols-4 items-center gap-4">
-                            <Label className="text-right">截止时间 <span className="text-red-500">*</span></Label>
-                            <Input
-                              type="datetime-local"
-                              value={newAssignment.endTime}
-                              onChange={e => setNewAssignment({ ...newAssignment, endTime: e.target.value })}
-                              className="col-span-3"
-                            />
-                          </div>
+                            <div className="grid grid-cols-4 items-center gap-4">
+                              <Label className="text-right">截止时间 <span className="text-red-500">*</span></Label>
+                              <Input
+                                type="datetime-local"
+                                value={newAssignment.endTime}
+                                onChange={e => setNewAssignment({ ...newAssignment, endTime: e.target.value })}
+                                className="col-span-3"
+                              />
+                            </div>
 
-                          <div className="grid grid-cols-4 items-start gap-4">
-                            <Label className="text-right pt-2">
-                              评分规则 <span className="text-red-500">*</span>
-                              <p className="text-xs text-gray-500 mt-1">
-                                使用JSON格式配置评分标准
-                              </p>
-                            </Label>
-                            <Textarea
-                              value={newAssignment.scoringRules}
-                              onChange={e => setNewAssignment({ ...newAssignment, scoringRules: e.target.value })}
-                              className="col-span-3 font-mono text-sm h-40"
-                              placeholder={`示例格式：\n[\n  {\n    "dimension": "操作准确性",\n    "metric": "DATA_ACCURACY",\n    "points": 50,\n    "expected": {\n      "metricName": "电阻电流",\n      "targetValue": 0.5,\n      "tolerance": 0.05\n    }\n  }\n]`}
-                            />
+                            <div className="grid grid-cols-4 items-start gap-4">
+                              <Label className="text-right pt-2">
+                                评分规则 <span className="text-red-500">*</span>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  使用JSON格式配置评分标准
+                                </p>
+                              </Label>
+                              <Textarea
+                                value={newAssignment.scoringRules}
+                                onChange={e => setNewAssignment({ ...newAssignment, scoringRules: e.target.value })}
+                                className="col-span-3 font-mono text-sm h-40"
+                                placeholder={`示例格式：\n[\n  {\n    "dimension": "操作准确性",\n    "metric": "DATA_ACCURACY",\n    "points": 50,\n    "expected": {\n      "metricName": "电阻电流",\n      "targetValue": 0.5,\n      "tolerance": 0.05\n    }\n  }\n]`}
+                              />
+                            </div>
+                            <div className="grid grid-cols-4 items-start gap-4"><Label className="text-right pt-2">任务要求</Label><Textarea value={newAssignment.requirements} onChange={e => setNewAssignment({ ...newAssignment, requirements: e.target.value })} className="col-span-3" /></div>
                           </div>
-                          <div className="grid grid-cols-4 items-start gap-4"><Label className="text-right pt-2">任务要求</Label><Textarea value={newAssignment.requirements} onChange={e => setNewAssignment({ ...newAssignment, requirements: e.target.value })} className="col-span-3" /></div>
-                        </div>
-                        <DialogFooter><Button onClick={handlePublishAssignment} disabled={publishAssignmentMutation.isPending}>{publishAssignmentMutation.isPending ? "发布中..." : "确认发布"}</Button></DialogFooter>
-                      </DialogContent>
-                    </Dialog>
+                          <DialogFooter><Button onClick={handlePublishAssignment} disabled={publishAssignmentMutation.isPending}>{publishAssignmentMutation.isPending ? "发布中..." : "确认发布"}</Button></DialogFooter>
+                        </DialogContent>
+                      </Dialog>
+                    </div>
                   </CardContent>
                 </Card>
               ))}
@@ -432,9 +547,6 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
                     <Button className="w-full" asChild><Link href={`/virtual-lab/grading/${task.id}`}>查看提交与批改</Link></Button>
                   </CardContent>
                 </Card>
-
-
-
               ))}
             </div>
             {teacherTasks.length === 0 && <p className="text-center text-gray-500 py-16">您尚未发布任何任务。</p>}
