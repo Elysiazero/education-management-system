@@ -36,7 +36,8 @@ interface Experiment {
   category: string
   difficulty: number
   duration: number
-  thumbnail: string
+  thumbnail: string // @notice 此字段现在存储的是图片的 objectKey
+  localThumbnailUrl?: string // 新增：用于存储临时的Blob URL
   creator: string
   simulationUrl?: string
 }
@@ -93,11 +94,12 @@ const normalizeExperiment = (record: any): Experiment => ({
   description: record.description || "暂无详细描述。",
   difficulty: record.difficulty || 1,
   duration: record.duration || 30,
-  thumbnail: record.thumbnailUrl || "",
+  thumbnail: record.thumbnailUrl || "", // thumbnail现在是objectKey
   creator: record.creator?.realName || "系统",
   simulationUrl: record.simulationUrl || "",
 })
 
+// @notice FIX: Handle nested grade object from the backend.
 const normalizeAssignment = (task: any): Assignment => ({
   id: String(task.id),
   taskName: task.taskName || "未命名任务",
@@ -105,11 +107,71 @@ const normalizeAssignment = (task: any): Assignment => ({
   experimentTitle: task.experiment?.title || "未知实验",
   endTime: task.endTime || new Date().toISOString(),
   status: task.status || "未开始",
-  grade: task.grade,
+  // If task.grade is an object, extract finalScore; otherwise, use task.grade directly.
+  grade: (task.grade && typeof task.grade === 'object') ? task.grade.finalScore : task.grade,
   requirements: task.taskRequirements || "无特定要求。",
 })
 
-const fetchExperiments = async (page = 0, size = 10): Promise<{ experiments: Experiment[]; totalPages: number }> => {
+const uploadAndGetObjectKey = async (
+  file: File,
+  resourceType: string,
+  user: UserType,
+  description: string = ""
+): Promise<string> => {
+  const token = getAuthToken();
+  if (!token) throw new Error("用户未登录");
+
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("userName", user.name);
+  formData.append("fileName", file.name);
+  formData.append("resourceType", resourceType);
+  formData.append("description", description);
+
+  const res = await fetch(`${RESOURCE_BASE_URL}/upload`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+
+  const responseText = await res.text();
+  if (!res.ok) {
+    throw new Error(responseText || "文件上传失败");
+  }
+
+  const objectKey = responseText.split("ObjectKey: ")[1];
+  if (!objectKey) {
+    throw new Error("无法从上传响应中解析出 ObjectKey");
+  }
+  return objectKey.trim();
+};
+
+
+const fetchImageAsBlobUrl = async (objectKey: string): Promise<string | undefined> => {
+  if (!objectKey) return undefined;
+  const token = getAuthToken();
+  if (!token) return undefined;
+
+  try {
+    const response = await fetch(`${RESOURCE_BASE_URL}/image-stream-by-key?objectKey=${encodeURIComponent(objectKey)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!response.ok) {
+      console.error(`Failed to fetch image with key ${objectKey}: ${response.statusText}`);
+      return undefined;
+    }
+
+    const imageBlob = await response.blob();
+    return URL.createObjectURL(imageBlob);
+  } catch (error) {
+    console.error(`Error fetching image with key ${objectKey}:`, error);
+    return undefined;
+  }
+};
+
+
+const fetchExperiments = async (page = 0, size = 9): Promise<{ experiments: Experiment[]; totalPages: number }> => {
   const token = getAuthToken()
   if (!token) throw new Error("用户未登录")
   const response = await fetch(`${API_BASE_URL}/experiments?page=${page}&size=${size}`, {
@@ -118,9 +180,19 @@ const fetchExperiments = async (page = 0, size = 10): Promise<{ experiments: Exp
   if (!response.ok) throw new Error("获取实验列表失败")
   const responseData = await response.json()
   const data = responseData?.data || {}
+
+  const experiments = (data.records || []).map(normalizeExperiment);
+
+  const experimentsWithLocalImages = await Promise.all(
+    experiments.map(async (exp: Experiment) => {
+      const localUrl = await fetchImageAsBlobUrl(exp.thumbnail);
+      return { ...exp, localThumbnailUrl: localUrl };
+    })
+  );
+
   return {
-    experiments: (data.content || data.records || []).map(normalizeExperiment),
-    totalPages: data.totalPages || 0,
+    experiments: experimentsWithLocalImages,
+    totalPages: data.pages || 0,
   }
 }
 
@@ -177,7 +249,7 @@ const formatAutoContentToHtml = (autoContent: any): string => {
     return autoContent || "";
   }
   let html = `<h4>${autoContent.reportTitle || '实验总结'}</h4>`;
-  html += `<p>${autoContent.summary || ''}</p>`;
+  html += `<p>${autoContent.summary || '无（未进行实验）'}</p>`;
   if (autoContent.keyDataPoints) {
     html += '<h5>关键数据点:</h5><ul>';
     for (const key in autoContent.keyDataPoints) {
@@ -225,6 +297,23 @@ const getMyReport = async (taskId: string): Promise<Report> => {
   if (!response.ok) throw new Error("获取实验报告失败");
   const responseData = await response.json();
   const data = responseData.data;
+
+  const nestedAttachments: string[][] = data.attachments || [];
+  const attachmentsObjectKeys: string[] = nestedAttachments.flat();
+
+  const attachments: Attachment[] = attachmentsObjectKeys.map((objectKey: string) => {
+    const nameParts = objectKey.split('_');
+    const fileName = nameParts.length > 2 ? nameParts.slice(2).join('_') : objectKey;
+
+    return {
+      id: objectKey,
+      name: fileName,
+      url: `${RESOURCE_BASE_URL}/download-by-key?objectKey=${encodeURIComponent(objectKey)}`,
+      type: 'FILE'
+    };
+  });
+
+  // @notice FIX: Handle nested grade and feedback object from the backend.
   return {
     id: String(data.id),
     studentId: String(data.student?.id),
@@ -232,36 +321,38 @@ const getMyReport = async (taskId: string): Promise<Report> => {
     submittedAt: data.submitTime,
     content: data.manualContent || "",
     autoContent: formatAutoContentToHtml(data.autoContent),
-    grade: data.grade,
-    feedback: data.feedback,
+    // If data.grade is an object, extract finalScore; otherwise, use data.grade.
+    grade: (data.grade && typeof data.grade === 'object') ? data.grade.finalScore : data.grade,
+    // If data.grade is an object, extract feedback; otherwise, use data.feedback.
+    feedback: (data.grade && typeof data.grade === 'object') ? data.grade.feedback : data.feedback,
     status: mapReportBEStatus(data.status),
-    attachments: data.attachments?.map((att: any) => ({
-      id: String(att.id),
-      name: att.fileName || '未知文件',
-      url: att.fileUrl || '#',
-      type: att.resourceType || 'FILE'
-    })) || [],
+    attachments: attachments,
   };
 };
 
-const submitReport = async (taskId: string, reportData: { content: string }, attachments: File[], isSubmitted: boolean): Promise<Report> => {
+const submitReport = async (
+  taskId: string,
+  reportData: { content: string },
+  attachments: File[],
+  isSubmitted: boolean,
+  user: UserType
+): Promise<Report> => {
   const token = getAuthToken();
   if (!token) throw new Error("用户未登录");
-  const attachmentsRids = await Promise.all(attachments.map(async file => {
-    const formData = new FormData();
-    formData.append("file", file);
-    formData.append("type", "REPORT_ATTACHMENT");
-    const res = await fetch(`${RESOURCE_BASE_URL}/upload`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: formData });
-    if (!res.ok) throw new Error(`上传附件 ${file.name} 失败`);
-    return (await res.json()).data.id;
-  }));
+
+  const attachmentsObjectKeys = await Promise.all(
+    attachments.map(file =>
+      uploadAndGetObjectKey(file, "REPORT_ATTACHMENT", user, `Attachment for task ${taskId}`)
+    )
+  );
+
   const reportResponse = await fetch(`${API_BASE_URL}/tasks/${taskId}/my-report`, {
     method: "PUT",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
     body: JSON.stringify({
       manualContent: reportData.content,
       isSubmitted: isSubmitted,
-      attachmentsRids: attachmentsRids
+      attachmentsRids: attachmentsObjectKeys
     }),
   });
   if (!reportResponse.ok) {
@@ -333,8 +424,8 @@ export default function StudentDashboard({ user }: StudentDashboardProps) {
   })
 
   const submitReportMutation = useMutation({
-    mutationFn: ({ taskId, reportData, attachments }: { taskId: string; reportData: { content: string }; attachments: File[] }) =>
-      submitReport(taskId, reportData, attachments, true),
+    mutationFn: ({ taskId, reportData, attachments, user }: { taskId: string; reportData: { content: string }; attachments: File[]; user: UserType }) =>
+      submitReport(taskId, reportData, attachments, true, user),
     onSuccess: () => {
       alert("报告提交成功！");
       setIsReportDialogOpen(false);
@@ -346,8 +437,8 @@ export default function StudentDashboard({ user }: StudentDashboardProps) {
   });
 
   const saveDraftMutation = useMutation({
-    mutationFn: ({ taskId, reportData, attachments }: { taskId: string; reportData: { content: string }; attachments: File[] }) =>
-      submitReport(taskId, reportData, attachments, false),
+    mutationFn: ({ taskId, reportData, attachments, user }: { taskId: string; reportData: { content: string }; attachments: File[]; user: UserType }) =>
+      submitReport(taskId, reportData, attachments, false, user),
     onSuccess: () => {
       alert("草稿保存成功！");
       queryClient.invalidateQueries({ queryKey: ['myReport', viewingTask?.id] });
@@ -371,7 +462,6 @@ export default function StudentDashboard({ user }: StudentDashboardProps) {
   }, [experimentsData, searchTerm, categoryFilter, difficultyFilter])
 
   // 事件处理器
-  // 已修改: 简化了 setSelectedTask 的逻辑
   const handleSelectExperiment = async (experiment: Experiment, task?: Assignment) => {
     setSelectedExperiment(null);
     setSelectedTask(task || null); // 如果没有 task 传入，则 selectedTask 为 null
@@ -397,13 +487,47 @@ export default function StudentDashboard({ user }: StudentDashboardProps) {
 
   const handleSubmitReport = () => {
     if (!viewingTask) return;
-    submitReportMutation.mutate({ taskId: viewingTask.id, reportData: { content: reportContent }, attachments });
+    submitReportMutation.mutate({ taskId: viewingTask.id, reportData: { content: reportContent }, attachments, user });
   }
 
   const handleSaveDraft = () => {
     if (!viewingTask) return;
-    saveDraftMutation.mutate({ taskId: viewingTask.id, reportData: { content: reportContent }, attachments });
+    saveDraftMutation.mutate({ taskId: viewingTask.id, reportData: { content: reportContent }, attachments, user });
   }
+
+  /**
+   * @notice 新增：处理带授权请求头的文件下载
+   */
+  const handleDownloadAttachment = async (attachment: Attachment) => {
+    const token = getAuthToken();
+    if (!token) {
+      alert("请先登录！");
+      return;
+    }
+    try {
+      const response = await fetch(attachment.url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!response.ok) {
+        throw new Error(`下载文件失败: ${response.statusText}`);
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.setAttribute('download', attachment.name); // 使用附件名
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+
+    } catch (error) {
+      console.error("下载附件时出错:", error);
+      alert("下载附件失败。");
+    }
+  };
 
   // 渲染辅助函数
   const getCategoryIcon = (category: string, sizeClass = "w-5 h-5") => {
@@ -498,7 +622,7 @@ export default function StudentDashboard({ user }: StudentDashboardProps) {
                       <Dialog open={isReportDialogOpen} onOpenChange={setIsReportDialogOpen}>
                         <DialogTrigger asChild>
                           <Button size="lg" variant="outline" className="w-full sm:w-auto" disabled={viewingTask.status === '已截止'}>
-                            {isActionDisabled ? '查看报告' : '提交/编辑报告'}
+                            {isActionDisabled ? '查看报告(成绩)' : '提交/编辑报告'}
                           </Button>
                         </DialogTrigger>
                         {/* 报告弹窗内容在下方定义 */}
@@ -515,12 +639,6 @@ export default function StudentDashboard({ user }: StudentDashboardProps) {
                         {new Date(viewingTask.endTime).toLocaleString()}
                       </strong>
                     </div>
-                    {viewingTask.status === '已批阅' && (
-                      <div className="flex justify-between items-center">
-                        <span>成绩:</span>
-                        <strong className="text-xl text-purple-600">{viewingTask.grade} / 100</strong>
-                      </div>
-                    )}
                   </div>
                   <h3 className="font-semibold text-lg pt-4 border-t">实验详情</h3>
                   <div className="space-y-3 text-sm text-gray-600">
@@ -588,13 +706,17 @@ export default function StudentDashboard({ user }: StudentDashboardProps) {
                     {currentReport?.attachments && currentReport.attachments.length > 0 && (
                       <div className="space-y-2">
                         {currentReport.attachments.map(att => (
-                          <a key={att.id} href={att.url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-between bg-gray-100 p-2 rounded text-sm hover:bg-gray-200 transition-colors">
+                          <button
+                            key={att.id}
+                            onClick={() => handleDownloadAttachment(att)}
+                            className="w-full text-left flex items-center justify-between bg-gray-100 p-2 rounded text-sm hover:bg-gray-200 transition-colors"
+                          >
                             <div className="flex items-center gap-2">
                               <Paperclip className="h-4 w-4 text-gray-600" />
                               <span className="truncate">{att.name}</span>
                             </div>
                             <Download className="h-4 w-4 text-blue-600" />
-                          </a>
+                          </button>
                         ))}
                       </div>
                     )}
@@ -772,10 +894,14 @@ export default function StudentDashboard({ user }: StudentDashboardProps) {
               </CardContent>
             </Card>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredExperiments.map((experiment) => (
+              {(filteredExperiments || []).map((experiment) => (
                 <Card key={experiment.id} className="flex flex-col cursor-pointer hover:shadow-lg transition-shadow" onClick={() => handleSelectExperiment(experiment)}>
                   <div className="aspect-video bg-gray-100 rounded-t-lg overflow-hidden">
-                    <img src={experiment.thumbnail || `https://placehold.co/400x225/e2e8f0/4a5568?text=${encodeURIComponent(experiment.title)}`} alt={experiment.title} className="object-cover w-full h-full" />
+                    <img
+                      src={experiment.localThumbnailUrl || `https://placehold.co/400x225/e2e8f0/4a5568?text=${encodeURIComponent(experiment.title)}`}
+                      alt={experiment.title}
+                      className="object-cover w-full h-full"
+                    />
                   </div>
                   <CardHeader className="flex-grow">
                     <CardTitle>{experiment.title}</CardTitle>
@@ -800,9 +926,27 @@ export default function StudentDashboard({ user }: StudentDashboardProps) {
             </div>
             <Pagination className="mt-8">
               <PaginationContent>
-                <PaginationPrevious onClick={() => setCurrentPage(p => Math.max(0, p - 1))} />
-                {[...Array(experimentsData?.totalPages || 0)].map((_, i) => <PaginationItem key={i}><PaginationLink onClick={() => setCurrentPage(i)} isActive={i === currentPage}>{i + 1}</PaginationLink></PaginationItem>)}
-                <PaginationNext onClick={() => setCurrentPage(p => Math.min((experimentsData?.totalPages || 1) - 1, p + 1))} />
+                <PaginationItem>
+                  <PaginationPrevious
+                    onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+                    aria-disabled={currentPage === 0}
+                    className={currentPage === 0 ? 'pointer-events-none opacity-50' : undefined}
+                  />
+                </PaginationItem>
+                {[...Array(experimentsData?.totalPages || 0)].map((_, i) => (
+                  <PaginationItem key={i}>
+                    <PaginationLink onClick={() => setCurrentPage(i)} isActive={i === currentPage}>
+                      {i + 1}
+                    </PaginationLink>
+                  </PaginationItem>
+                ))}
+                <PaginationItem>
+                  <PaginationNext
+                    onClick={() => setCurrentPage(p => Math.min((experimentsData?.totalPages || 1) - 1, p + 1))}
+                    aria-disabled={currentPage >= (experimentsData?.totalPages || 1) - 1}
+                    className={currentPage >= (experimentsData?.totalPages || 1) - 1 ? 'pointer-events-none opacity-50' : undefined}
+                  />
+                </PaginationItem>
               </PaginationContent>
             </Pagination>
           </TabsContent>

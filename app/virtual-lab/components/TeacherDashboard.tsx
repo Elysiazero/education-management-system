@@ -14,10 +14,10 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import Link from "next/link"
-import { Star, Plus, Send, FileText, AlertCircle, CheckCircle, Download, Award, Microscope, Atom, Beaker, FlaskConical } from "lucide-react"
+import { Star, Plus, Send, FileText, AlertCircle, CheckCircle, Download } from "lucide-react"
 
 // =================================================================
-// 1. Type Definitions
+// 1. 类型定义 (Type Definitions)
 // =================================================================
 interface UserType { id: string; name: string; role: "student" | "teacher" | "admin"; }
 interface Experiment {
@@ -29,7 +29,7 @@ interface Experiment {
   duration: number;
   creator: string;
   thumbnail: string;
-  simPackageUrl: string;
+  simPackageUrl: string; // This is the objectKey for the simulation package
   fileName: string;
 }
 interface Assignment { id: string; taskName: string; className: string; classId: string; experimentId: string; experimentTitle?: string; startTime: string; endTime: string; }
@@ -40,35 +40,41 @@ interface GradingStats { totalReports: number; submittedReports: number; gradedR
 interface TeacherDashboardProps { user: UserType; }
 
 // =================================================================
-// 2. API Request Functions
+// 2. API 请求函数 (API Request Functions)
 // =================================================================
 const API_BASE_URL = "http://localhost:8080/api/v1/teaching"
-const UPLOAD_BASE_URL = "http://localhost:8080"
+const RESOURCE_BASE_URL = "http://localhost:8080"
 const getAuthToken = () => typeof window !== "undefined" ? localStorage.getItem("accessToken") : null
 
-// @notice OSS 配置，用于拼接封面图 URL
-const OSS_BUCKET_INFO = {
-  ENDPOINT: "oss-cn-chengdu.aliyuncs.com",
-  BUCKET_NAME: "plantform-resource"
-};
-const BUCKET_URL = `https://${OSS_BUCKET_INFO.BUCKET_NAME}.${OSS_BUCKET_INFO.ENDPOINT}`;
+/**
+ * @notice 已修复: 优化了文件名的解析逻辑
+ * @param record 后端返回的原始实验数据
+ * @returns 标准化的实验对象
+ */
+const normalizeExperiment = (record: any): Experiment => {
+  // 智能解析文件名：优先使用后端提供的fileName，否则尝试从objectKey中解析
+  const objectKey = record.simPackageObjectKey || "";
+  const nameParts = objectKey.split('_');
+  const parsedNameFromKey = nameParts.length > 2 ? nameParts.slice(2).join('_') : objectKey;
 
-const normalizeExperiment = (record: any): Experiment => ({
-  id: String(record.id),
-  title: record.title || "无标题实验",
-  description: record.description || "",
-  category: record.subject || "其它",
-  difficulty: record.difficulty || 1,
-  duration: record.duration || 30,
-  creator: record.creator?.realName || "系统",
-  thumbnail: record.thumbnailUrl || "",
-  simPackageUrl: record.simPackageUrl || "", // 处理仿真包URL
-  fileName: record.fileName || "download.zip" // 处理文件名
-});
+  return {
+    id: String(record.id),
+    title: record.title || "无标题实验",
+    description: record.description || "",
+    category: record.subject || "其它",
+    difficulty: record.difficulty || 1,
+    duration: record.duration || 30,
+    creator: record.creator?.realName || "系统",
+    thumbnail: record.thumbnailUrl || "",
+    simPackageUrl: objectKey,
+    fileName: record.fileName || parsedNameFromKey || "downloaded_file" // 多重保障
+  }
+};
 
 const mapReportStatus = (status: string): "未提交" | "已提交" | "已批改" => {
   switch (status?.toUpperCase()) {
     case "NOT_SUBMITTED": return "未提交";
+    case "DRAFT": return "已提交";
     case "SUBMITTED": return "已提交";
     case "GRADED": return "已批改";
     default: return "未提交";
@@ -86,9 +92,6 @@ const normalizeAssignment = (task: any): Assignment => ({
   endTime: task.endTime || new Date().toISOString(),
 });
 
-/**
- * @notice 更新：上传文件并从返回的文本中解析出 objectKey
- */
 const uploadAndGetObjectKey = async (
   file: File,
   resourceType: string,
@@ -105,7 +108,7 @@ const uploadAndGetObjectKey = async (
   formData.append("resourceType", resourceType);
   formData.append("description", description);
 
-  const res = await fetch(`${UPLOAD_BASE_URL}/upload`, {
+  const res = await fetch(`${RESOURCE_BASE_URL}/upload`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: formData,
@@ -116,7 +119,6 @@ const uploadAndGetObjectKey = async (
     throw new Error(responseText || "文件上传失败");
   }
 
-  // 从 "文件上传并保存成功! ObjectKey: xxx" 中解析出 objectKey
   const objectKey = responseText.split("ObjectKey: ")[1];
   if (!objectKey) {
     throw new Error("无法从上传响应中解析出 ObjectKey");
@@ -124,9 +126,6 @@ const uploadAndGetObjectKey = async (
   return objectKey.trim();
 };
 
-/**
- * @notice 新增：完整的创建实验流程函数
- */
 const createExperiment = async (
   newExperimentData: any,
   files: { simulationPackage?: File; thumbnail?: File },
@@ -136,24 +135,20 @@ const createExperiment = async (
   if (!token) throw new Error("用户未登录");
   if (!files.simulationPackage) throw new Error("必须提供仿真包文件");
 
-  // 第 1 步: 上传仿真包并获取其 objectKey
   const simPackageObjectKey = await uploadAndGetObjectKey(files.simulationPackage, "SIMULATION_PACKAGE", user, `仿真包: ${newExperimentData.title}`);
 
-  // 第 2 步: 如果有封面图，上传并构建其 URL
   let thumbnailUrl: string | undefined = undefined;
   if (files.thumbnail) {
-    const thumbnailObjectKey = await uploadAndGetObjectKey(files.thumbnail, "IMAGE", user, `封面图: ${newExperimentData.title}`);
-    thumbnailUrl = `${BUCKET_URL}/${thumbnailObjectKey}`;
+    thumbnailUrl = await uploadAndGetObjectKey(files.thumbnail, "IMAGE", user, `封面图: ${newExperimentData.title}`);
   }
 
-  // 第 3 步: 准备最终提交的数据
   const payload = {
     ...newExperimentData,
     simPackageObjectKey: simPackageObjectKey,
     thumbnailUrl: thumbnailUrl,
+    fileName: files.simulationPackage.name, // 将文件名一起提交
   };
 
-  // 第 4 步: 调用创建实验的 API
   const response = await fetch(`${API_BASE_URL}/experiments`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -172,7 +167,6 @@ const publishAssignment = async (assignmentData: any): Promise<Assignment> => {
   const token = getAuthToken();
   if (!token) throw new Error("用户未登录");
 
-  // 解析评分规则
   let scoringRules;
   try {
     scoringRules = JSON.parse(assignmentData.scoringRules);
@@ -191,7 +185,7 @@ const publishAssignment = async (assignmentData: any): Promise<Assignment> => {
       startTime: assignmentData.startTime,
       endTime: assignmentData.endTime,
       studentIds: assignmentData.studentIds.map((id: string | number) => Number(id)),
-      scoringRules: scoringRules // 新增评分规则
+      scoringRules: scoringRules
     }),
   });
 
@@ -209,27 +203,34 @@ const fetchTeacherTasks = async (): Promise<Assignment[]> => {
   return (data?.content || data?.records || []).map(normalizeAssignment);
 };
 
+/**
+ * @notice 已修复: 此函数现在能正确解析报告API返回的嵌套成绩结构。
+ * @param taskId 要获取报告的任务ID
+ * @returns 标准化的任务报告对象数组
+ */
 const fetchTaskReports = async (taskId: string): Promise<TaskReport[]> => {
   const token = getAuthToken();
   if (!token) throw new Error("用户未登录");
   const response = await fetch(`${API_BASE_URL}/tasks/${taskId}/reports`, { headers: { Authorization: `Bearer ${token}` } });
   if (!response.ok) throw new Error("获取任务报告失败");
   const data = (await response.json()).data;
-  return (data?.content || data?.records || []).map((r: any) => ({
-    ...r,
-    status: mapReportStatus(r.status),
-    // ➡️ 只保留合法数字，其余设为 null
-    grade:
-      r.grade !== null && r.grade !== undefined && !isNaN(Number(r.grade))
-        ? Number(r.grade)
-        : null,
-  }))
+  return (data?.content || data?.records || []).map((r: any) => {
+    // 关键修复：从 r.grade.finalScore 获取最终分数
+    const finalGrade = r.grade?.finalScore;
+    return {
+      id: r.id,
+      studentName: r.student.realName,
+      status: mapReportStatus(r.status),
+      // 关键修复：使用 finalGrade 进行判断和赋值
+      grade: finalGrade !== null && finalGrade !== undefined && !isNaN(Number(finalGrade)) ? Number(finalGrade) : undefined,
+    };
+  });
 };
 
 const fetchExperiments = async (): Promise<Experiment[]> => {
   const token = getAuthToken();
   if (!token) throw new Error("用户未登录");
-  const response = await fetch(`${API_BASE_URL}/experiments?size=200`, { headers: { Authorization: `Bearer ${token}` } }); // Fetch more for filtering
+  const response = await fetch(`${API_BASE_URL}/experiments?size=200`, { headers: { Authorization: `Bearer ${token}` } });
   if (!response.ok) throw new Error("获取实验列表失败");
   const data = (await response.json()).data;
   return (data?.content || data?.records || []).map(normalizeExperiment);
@@ -264,28 +265,16 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
   const [isPublishing, setIsPublishing] = useState(false);
   const [currentExperiment, setCurrentExperiment] = useState<Experiment | null>(null);
   const [newExperiment, setNewExperiment] = useState({ title: "", description: "", subject: "化学", difficulty: 3 });
-  // @notice 修改：将 useState 的初始值从 null 改为 undefined，以匹配函数签名
   const [simulationPackage, setSimulationPackage] = useState<File | undefined>(undefined);
   const [thumbnailFile, setThumbnailFile] = useState<File | undefined>(undefined);
   const [newAssignment, setNewAssignment] = useState({
     taskName: "",
     classId: "",
     studentId: "",
-    startTime: "", // 新增开始时间
+    startTime: "",
     endTime: "",
     requirements: "",
-    scoringRules: JSON.stringify([ // 新增评分规则
-      {
-        dimension: "操作准确性",
-        metric: "DATA_ACCURACY",
-        points: 50,
-        expected: {
-          metricName: "",
-          targetValue: 0,
-          tolerance: 0
-        }
-      }
-    ], null, 2)
+    scoringRules: JSON.stringify([{ dimension: "操作准确性", metric: "DATA_ACCURACY", points: 50, expected: { metricName: "", targetValue: 0, tolerance: 0 } }], null, 2)
   });
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -295,6 +284,7 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
   const { data: experiments = [], isLoading: experimentsLoading } = useQuery<Experiment[]>({ queryKey: ["experiments"], queryFn: fetchExperiments });
   const { data: teacherTasks = [], isLoading: teacherTasksLoading } = useQuery<Assignment[]>({ queryKey: ["teacherTasks", user.id], queryFn: fetchTeacherTasks });
   const { data: classData, isLoading: classDataLoading } = useQuery({ queryKey: ['classesAndStudents'], queryFn: fetchClassesAndStudents });
+
   const { data: allReports, isLoading: reportsLoading } = useQuery({
     queryKey: ['allTaskReports', teacherTasks],
     queryFn: async () => {
@@ -310,12 +300,7 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
     if (!allReports) {
       return { totalReports: 0, submittedReports: 0, gradedReports: 0, averageGrade: 0 }
     }
-
-    // 已批改且 grade 是有效数字
-    const graded = allReports.filter(
-      r => r.status === '已批改' && typeof r.grade === 'number' && !isNaN(r.grade)
-    )
-
+    const graded = allReports.filter(r => r.status === '已批改' && typeof r.grade === 'number' && !isNaN(r.grade));
     const total = graded.reduce((sum, r) => sum + (r.grade as number), 0)
     const avg = graded.length ? +(total / graded.length).toFixed(1) : 0
 
@@ -342,7 +327,6 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
       queryClient.invalidateQueries({ queryKey: ["experiments"] });
       setIsCreating(false);
       alert("实验创建成功！");
-      // 重置表单
       setNewExperiment({ title: "", description: "", subject: "化学", difficulty: 3 });
       setSimulationPackage(undefined);
       setThumbnailFile(undefined);
@@ -377,17 +361,47 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
     }
   };
 
-  const handleDownload = (url: string, fileName: string) => {
-    if (!url) {
-      alert("此实验没有可用的下载链接。");
+  /**
+   * @notice 处理带授权请求头的文件下载
+   * @param objectKey 文件的唯一标识 (Object Key)
+   * @param fileName 下载时希望显示的文件名
+   */
+  const handleDownload = async (objectKey: string, fileName: string) => {
+    if (!objectKey) {
+      alert("资源不存在或已失效。");
       return;
     }
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', fileName);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const token = getAuthToken();
+    if (!token) {
+      alert("请先登录！");
+      return;
+    }
+
+    const downloadUrlWithToken = `${RESOURCE_BASE_URL}/download-by-key?objectKey=${encodeURIComponent(objectKey)}`;
+
+    try {
+      const response = await fetch(downloadUrlWithToken, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!response.ok) {
+        throw new Error(`下载文件失败: ${response.statusText}`);
+      }
+
+      const blob = await response.blob();
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.setAttribute('download', fileName);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(downloadUrl);
+
+    } catch (error) {
+      console.error("下载附件时出错:", error);
+      alert("下载附件失败。");
+    }
   };
 
   const handlePublishAssignment = () => {
@@ -414,7 +428,7 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
   // Render Helpers
   const renderStarRating = (d: number) => <div className="flex">{[...Array(5)].map((_, i) => <Star key={i} className={`w-4 h-4 ${i < d ? "fill-yellow-400 text-yellow-400" : "text-gray-300"}`} />)}</div>;
 
-  if (experimentsLoading || teacherTasksLoading || classDataLoading) {
+  if (experimentsLoading || teacherTasksLoading || classDataLoading || reportsLoading) {
     return <div className="p-8"><Skeleton className="h-screen w-full" /></div>;
   }
 
@@ -451,7 +465,6 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
               <p className="text-2xl font-bold">{gradingStats.totalReports}</p>
               <p className="text-sm text-gray-500">总报告数</p>
             </div>
-
             <div>
               <AlertCircle className="mx-auto h-7 w-7 text-yellow-500 mb-1" />
               <p className="text-2xl font-bold">
@@ -459,7 +472,6 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
               </p>
               <p className="text-sm text-gray-500">待批改</p>
             </div>
-
             <div>
               <CheckCircle className="mx-auto h-7 w-7 text-green-500 mb-1" />
               <p className="text-2xl font-bold">{gradingStats.gradedReports}</p>
@@ -483,7 +495,7 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
                     <div className="flex justify-between items-center mb-4"><Badge variant="secondary">{exp.category}</Badge>{renderStarRating(exp.difficulty)}</div>
                     <div className="flex gap-2 mt-auto">
                       <Button variant="outline" className="w-full" onClick={() => handleDownload(exp.simPackageUrl, exp.fileName)}>
-                        <Download className="w-4 h-4 mr-2" /> 下载
+                        <Download className="w-4 h-4 mr-2" /> 下载资源包
                       </Button>
                       <Dialog open={isPublishing && currentExperiment?.id === exp.id} onOpenChange={(open) => !open && setIsPublishing(false)}>
                         <DialogTrigger asChild><Button className="w-full" onClick={() => { setIsPublishing(true); setCurrentExperiment(exp); }}><Send className="w-4 h-4 mr-2" /> 发布任务</Button></DialogTrigger>
@@ -494,37 +506,15 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
                             <div className="grid grid-cols-4 items-center gap-4"><Label className="text-right">选择班级</Label><Select onValueChange={v => setNewAssignment({ ...newAssignment, classId: v, studentId: '' })}><SelectTrigger className="col-span-3"><SelectValue placeholder="选择班级" /></SelectTrigger><SelectContent>{classData?.classes.map(c => <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>)}</SelectContent></Select></div>
                             <div className="grid grid-cols-4 items-center gap-4">
                               <Label className="text-right">开始时间 <span className="text-red-500">*</span></Label>
-                              <Input
-                                type="datetime-local"
-                                value={newAssignment.startTime}
-                                onChange={e => setNewAssignment({ ...newAssignment, startTime: e.target.value })}
-                                className="col-span-3"
-                              />
+                              <Input type="datetime-local" value={newAssignment.startTime} onChange={e => setNewAssignment({ ...newAssignment, startTime: e.target.value })} className="col-span-3" />
                             </div>
-
                             <div className="grid grid-cols-4 items-center gap-4">
                               <Label className="text-right">截止时间 <span className="text-red-500">*</span></Label>
-                              <Input
-                                type="datetime-local"
-                                value={newAssignment.endTime}
-                                onChange={e => setNewAssignment({ ...newAssignment, endTime: e.target.value })}
-                                className="col-span-3"
-                              />
+                              <Input type="datetime-local" value={newAssignment.endTime} onChange={e => setNewAssignment({ ...newAssignment, endTime: e.target.value })} className="col-span-3" />
                             </div>
-
                             <div className="grid grid-cols-4 items-start gap-4">
-                              <Label className="text-right pt-2">
-                                评分规则 <span className="text-red-500">*</span>
-                                <p className="text-xs text-gray-500 mt-1">
-                                  使用JSON格式配置评分标准
-                                </p>
-                              </Label>
-                              <Textarea
-                                value={newAssignment.scoringRules}
-                                onChange={e => setNewAssignment({ ...newAssignment, scoringRules: e.target.value })}
-                                className="col-span-3 font-mono text-sm h-40"
-                                placeholder={`示例格式：\n[\n  {\n    "dimension": "操作准确性",\n    "metric": "DATA_ACCURACY",\n    "points": 50,\n    "expected": {\n      "metricName": "电阻电流",\n      "targetValue": 0.5,\n      "tolerance": 0.05\n    }\n  }\n]`}
-                              />
+                              <Label className="text-right pt-2">评分规则 <span className="text-red-500">*</span></Label>
+                              <Textarea value={newAssignment.scoringRules} onChange={e => setNewAssignment({ ...newAssignment, scoringRules: e.target.value })} className="col-span-3 font-mono text-sm h-40" placeholder={`示例格式...\n`} />
                             </div>
                             <div className="grid grid-cols-4 items-start gap-4"><Label className="text-right pt-2">任务要求</Label><Textarea value={newAssignment.requirements} onChange={e => setNewAssignment({ ...newAssignment, requirements: e.target.value })} className="col-span-3" /></div>
                           </div>
@@ -544,7 +534,9 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
                   <CardHeader><CardTitle>{task.taskName}</CardTitle><CardDescription>实验: {task.experimentTitle} | 班级: {task.className}</CardDescription></CardHeader>
                   <CardContent>
                     <p className="text-sm text-gray-500 mb-4">截止时间: {new Date(task.endTime).toLocaleString()}</p>
-                    <Button className="w-full" asChild><Link href={`/virtual-lab/grading/${task.id}`}>查看提交与批改</Link></Button>
+                    <Button className="w-full" asChild>
+                      <Link href={`/virtual-lab/grading/${task.id}`}>查看提交与批改</Link>
+                    </Button>
                   </CardContent>
                 </Card>
               ))}
