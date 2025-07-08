@@ -1,17 +1,19 @@
 "use client"
 
 import type React from "react"
-
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
 import { DatePickerWithRange } from "@/components/ui/date-picker"
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, Legend } from "recharts"
 import {
   Search,
   Filter,
@@ -19,659 +21,496 @@ import {
   AlertTriangle,
   CheckCircle,
   XCircle,
-  Info,
   Activity,
   Users,
   Database,
   Shield,
-  Calendar,
+  Loader2,
+  ChevronLeft,
+  ChevronRight,
+  Eye,
+  BookOpen,
+  ClipboardList,
+  GraduationCap
 } from "lucide-react"
+import type { DateRange } from "react-day-picker"
 
-interface User {
-  id: string
-  name: string
-  email: string
-  role: "student" | "teacher" | "admin"
-}
-
+// --- 接口定义 ---
 interface LogEntry {
-  id: string
-  timestamp: string
-  userId: string
-  userName: string
-  userRole: string
-  action: string
-  resource: string
-  details: string
-  ipAddress: string
-  userAgent: string
-  status: "success" | "warning" | "error" | "info"
-  category: "auth" | "project" | "resource" | "system" | "grade"
+  id: number
+  createdAt: string
+  userId: number
+  username: string
+  operationType: string
+  description: string
+  serviceName: string
+  requestIp: string
+  requestParams: string
+  status: number // 0: 成功, 1: 失败
+  duration: number
+  responseResult?: string // 新增：响应结果字段
 }
 
 interface SystemMetric {
   name: string
   value: string
-  change: string
-  trend: "up" | "down" | "stable"
   icon: React.ReactNode
 }
 
+// --- 常量定义：与后端 OperationTypeEnum 保持一致 ---
+const OPERATION_TYPE_MAP = {
+  // 班级管理模块
+  CREATE_CLASS: { description: "创建班级", module: "班级管理" },
+  UPDATE_CLASS: { description: "更新班级信息", module: "班级管理" },
+  DELETE_CLASS: { description: "删除班级", module: "班级管理" },
+  ADD_STUDENTS_TO_CLASS: { description: "添加班级成员", module: "班级管理" },
+  REMOVE_STUDENT_FROM_CLASS: { description: "移除班级成员", module: "班级管理" },
+  JOIN_CLASS_BY_CODE: { description: "使用邀请码加入班级", module: "班级管理" },
+
+  // 实验项目库模块
+  CREATE_EXPERIMENT: { description: "创建实验项目", module: "实验管理" },
+  UPDATE_EXPERIMENT: { description: "更新实验项目", module: "实验管理" },
+  DELETE_EXPERIMENT: { description: "删除实验项目", module: "实验管理" },
+
+  // 实验任务模块
+  ASSIGN_EXPERIMENT_TASK: { description: "指派实验任务", module: "实验管理" },
+  START_EXPERIMENT_SESSION: { description: "开始实验", module: "实验管理" },
+  RECORD_EXPERIMENT_LOG: { description: "记录实验操作", module: "实验管理" },
+
+  // 实验报告与评分模块
+  SUBMIT_REPORT: { description: "提交实验报告", module: "实验管理" },
+  GRADE_REPORT: { description: "批阅实验报告", module: "实验管理" },
+
+  // 默认/未知类型
+  UNKNOWN: { description: "未知操作", module: "其他" }
+};
+
+// 将操作类型按模块分组
+const operationTypesByModule = Object.entries(OPERATION_TYPE_MAP).reduce((acc, [key, value]) => {
+  if (!acc[value.module]) {
+    acc[value.module] = [];
+  }
+  acc[value.module].push({ key, description: value.description });
+  return acc;
+}, {} as Record<string, { key: string, description: string }[]>);
+
+
+// --- 主组件 ---
 export default function AuditLogsPage() {
-  const [user, setUser] = useState<User | null>(null)
+  // --- 状态管理 ---
   const [logs, setLogs] = useState<LogEntry[]>([])
-  const [filteredLogs, setFilteredLogs] = useState<LogEntry[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
+  const [activeTab, setActiveTab] = useState<string>("all");
+
+  // 过滤与分页状态
   const [searchTerm, setSearchTerm] = useState("")
   const [statusFilter, setStatusFilter] = useState<string>("all")
-  const [categoryFilter, setCategoryFilter] = useState<string>("all")
-  const [dateRange, setDateRange] = useState<{ from: Date | undefined; to: Date | undefined }>({
-    from: undefined,
-    to: undefined,
-  })
-  const router = useRouter()
+  const [operationTypeFilter, setOperationTypeFilter] = useState<string>("all")
+  const [dateRange, setDateRange] = useState<{ from?: Date; to?: Date }>({});
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(0)
+  const [totalRecords, setTotalRecords] = useState(0)
+  const pageSize = 10
+  const router = useRouter();
 
+  // --- 数据获取 ---
+  const fetchLogs = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    const token = typeof window !== 'undefined' ? localStorage.getItem("accessToken") : null;
+
+    if (!token) {
+      setError("用户未登录或认证已过期，请重新登录。");
+      setIsLoading(false);
+      // 可选：延迟跳转到登录页
+      // setTimeout(() => router.push("/login"), 2000);
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams()
+      params.append("pageNum", String(currentPage))
+      params.append("pageSize", String(pageSize))
+      if (searchTerm) params.append("username", searchTerm)
+      if (statusFilter !== "all") params.append("status", statusFilter)
+      if (operationTypeFilter !== "all") params.append("operationType", operationTypeFilter)
+      if (dateRange?.from) params.append("startTime", dateRange.from.toISOString())
+      if (dateRange?.to) params.append("endTime", dateRange.to.toISOString())
+
+      if (activeTab !== "all" && activeTab !== "analytics") {
+        const typesForModule = Object.entries(OPERATION_TYPE_MAP)
+          .filter(([, value]) => value.module === activeTab)
+          .map(([key]) => key);
+
+        if (typesForModule.length > 0) {
+          typesForModule.forEach(type => params.append("operationType", type));
+        }
+      }
+
+
+      const headers = new Headers({
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json'
+      });
+
+      const response = await fetch(`http://localhost:8080/api/v1/admin/logs?${params.toString()}`, { headers })
+
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) {
+          throw new Error(`认证失败 (${response.status})，请检查权限或重新登录。`);
+        }
+        throw new Error(`网络请求错误，状态码: ${response.status}`);
+      }
+
+      const result = await response.json();
+      if (result.code === 200 && result.data) {
+        const records = result.data.records || [];
+        let total = result.data.total;
+        let pages = result.data.pages;
+
+        // FIX: 兼容后端返回数据不一致的情况
+        // 如果后端返回了记录，但 total 或 pages 为 0，说明分页数据有误
+        if ((total === 0 || pages === 0) && records.length > 0) {
+          console.warn("后端API返回了记录但分页总数(total/pages)为0。分页功能可能不正确。前端将使用当前页记录数作为总数以保证UI一致性。");
+          total = records.length; // 这不是真实的总数，但能保证UI指标一致
+          pages = 1; // 只能假设当前是第一页也是最后一页
+        }
+
+        setLogs(records);
+        setTotalPages(pages || 0);
+        setTotalRecords(total || 0);
+      } else {
+        throw new Error(result.message || "获取日志数据失败。");
+      }
+    } catch (e: any) {
+      setError(e.message);
+      setLogs([]);
+      setTotalRecords(0);
+      setTotalPages(0);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [currentPage, searchTerm, statusFilter, operationTypeFilter, dateRange, activeTab, router]);
+
+  // --- Effects ---
   useEffect(() => {
-    const userData = localStorage.getItem("user")
-    if (!userData) {
-      router.push("/login")
-      return
-    }
+    fetchLogs();
+  }, [fetchLogs]);
 
-    const parsedUser = JSON.parse(userData)
-    if (parsedUser.role !== "admin") {
-      router.push("/")
-      return
-    }
-
-    setUser(parsedUser)
-
-    // 模拟日志数据
-    const mockLogs: LogEntry[] = [
-      {
-        id: "1",
-        timestamp: "2024-01-08 14:30:25",
-        userId: "user1",
-        userName: "张三",
-        userRole: "student",
-        action: "登录系统",
-        resource: "认证系统",
-        details: "用户成功登录",
-        ipAddress: "192.168.1.100",
-        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        status: "success",
-        category: "auth",
-      },
-      {
-        id: "2",
-        timestamp: "2024-01-08 14:25:12",
-        userId: "user2",
-        userName: "李老师",
-        userRole: "teacher",
-        action: "创建实训项目",
-        resource: "项目管理",
-        details: "创建项目：Web开发实践",
-        ipAddress: "192.168.1.101",
-        userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-        status: "success",
-        category: "project",
-      },
-      {
-        id: "3",
-        timestamp: "2024-01-08 14:20:45",
-        userId: "user3",
-        userName: "王五",
-        userRole: "student",
-        action: "登录失败",
-        resource: "认证系统",
-        details: "密码错误，登录失败",
-        ipAddress: "192.168.1.102",
-        userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 14_7_1 like Mac OS X)",
-        status: "error",
-        category: "auth",
-      },
-      {
-        id: "4",
-        timestamp: "2024-01-08 14:15:30",
-        userId: "user4",
-        userName: "赵老师",
-        userRole: "teacher",
-        action: "上传教学资源",
-        resource: "资源管理",
-        details: "上传文件：React开发指南.pdf",
-        ipAddress: "192.168.1.103",
-        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        status: "success",
-        category: "resource",
-      },
-      {
-        id: "5",
-        timestamp: "2024-01-08 14:10:15",
-        userId: "admin1",
-        userName: "系统管理员",
-        userRole: "admin",
-        action: "修改用户权限",
-        resource: "用户管理",
-        details: "修改用户张三的权限",
-        ipAddress: "192.168.1.1",
-        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        status: "warning",
-        category: "system",
-      },
-      {
-        id: "6",
-        timestamp: "2024-01-08 14:05:00",
-        userId: "user5",
-        userName: "刘六",
-        userRole: "student",
-        action: "提交实验报告",
-        resource: "虚拟实验",
-        details: "提交化学反应动力学实验报告",
-        ipAddress: "192.168.1.104",
-        userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        status: "success",
-        category: "project",
-      },
-    ]
-
-    setLogs(mockLogs)
-    setFilteredLogs(mockLogs)
-  }, [router])
-
+  // 当筛选条件或标签页变化时，重置到第一页
   useEffect(() => {
-    let filtered = logs
+    setCurrentPage(1);
+  }, [searchTerm, statusFilter, operationTypeFilter, dateRange, activeTab]);
 
-    // 搜索过滤
-    if (searchTerm) {
-      filtered = filtered.filter(
-        (log) =>
-          log.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          log.action.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          log.resource.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          log.details.toLowerCase().includes(searchTerm.toLowerCase()),
-      )
+  // --- 派生状态与计算属性 ---
+  const systemMetrics: SystemMetric[] = useMemo(() => {
+    const failedLogsCount = logs.filter(log => log.status === 1).length;
+
+    const averageDuration = logs.length > 0
+      ? Math.round(logs.reduce((acc, log) => acc + log.duration, 0) / logs.length)
+      : 0;
+
+    return [
+      { name: "日志总数 (当前筛选)", value: totalRecords.toLocaleString(), icon: <Database className="w-6 h-6 text-blue-600" /> },
+      { name: "总页数", value: totalPages.toLocaleString(), icon: <BookOpen className="w-6 h-6 text-indigo-600" /> },
+      {
+        name: "失败日志 (当前页)",
+        value: failedLogsCount.toString(),
+        icon: <AlertTriangle className="w-6 h-6 text-red-600" />
+      },
+      { name: "平均响应耗时 (当前页)", value: `${averageDuration} ms`, icon: <Activity className="w-6 h-6 text-purple-600" /> },
+    ];
+  }, [logs, totalRecords, totalPages]);
+
+  const operationTypeDistribution = useMemo(() => {
+    const counts = logs.reduce((acc, log) => {
+      const name = OPERATION_TYPE_MAP[log.operationType as keyof typeof OPERATION_TYPE_MAP]?.description || log.operationType;
+      acc[name] = (acc[name] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    return Object.entries(counts).map(([name, value]) => ({ name, count: value }));
+  }, [logs]);
+
+  // --- 辅助函数与事件处理 ---
+  const getStatusBadge = (status: number) => {
+    if (status === 0) return <Badge variant="default" className="bg-green-100 text-green-800 border-green-300">成功</Badge>;
+    return <Badge variant="destructive">失败</Badge>;
+  };
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage > 0 && newPage <= totalPages) {
+      setCurrentPage(newPage);
     }
-
-    // 状态过滤
-    if (statusFilter !== "all") {
-      filtered = filtered.filter((log) => log.status === statusFilter)
-    }
-
-    // 分类过滤
-    if (categoryFilter !== "all") {
-      filtered = filtered.filter((log) => log.category === categoryFilter)
-    }
-
-    // 日期范围过滤
-    if (dateRange.from && dateRange.to) {
-      filtered = filtered.filter((log) => {
-        const logDate = new Date(log.timestamp)
-        return logDate >= dateRange.from! && logDate <= dateRange.to!
-      })
-    }
-
-    setFilteredLogs(filtered)
-  }, [logs, searchTerm, statusFilter, categoryFilter, dateRange])
-
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case "success":
-        return <CheckCircle className="w-4 h-4 text-green-600" />
-      case "warning":
-        return <AlertTriangle className="w-4 h-4 text-yellow-600" />
-      case "error":
-        return <XCircle className="w-4 h-4 text-red-600" />
-      case "info":
-        return <Info className="w-4 h-4 text-blue-600" />
-      default:
-        return <Info className="w-4 h-4 text-gray-600" />
-    }
-  }
-
-  const getStatusBadge = (status: string) => {
-    const variants = {
-      success: "default",
-      warning: "secondary",
-      error: "destructive",
-      info: "outline",
-    } as const
-
-    const labels = {
-      success: "成功",
-      warning: "警告",
-      error: "错误",
-      info: "信息",
-    }
-
-    return (
-      <Badge variant={variants[status as keyof typeof variants] || "outline"}>
-        {labels[status as keyof typeof labels] || status}
-      </Badge>
-    )
-  }
-
-  const getCategoryLabel = (category: string) => {
-    const labels = {
-      auth: "认证",
-      project: "项目",
-      resource: "资源",
-      system: "系统",
-      grade: "成绩",
-    }
-    return labels[category as keyof typeof labels] || category
-  }
-
-  const systemMetrics: SystemMetric[] = [
-    {
-      name: "今日活跃用户",
-      value: "156",
-      change: "+12%",
-      trend: "up",
-      icon: <Users className="w-5 h-5 text-blue-600" />,
-    },
-    {
-      name: "系统操作次数",
-      value: "2,847",
-      change: "+8%",
-      trend: "up",
-      icon: <Activity className="w-5 h-5 text-green-600" />,
-    },
-    {
-      name: "错误日志数量",
-      value: "23",
-      change: "-15%",
-      trend: "down",
-      icon: <AlertTriangle className="w-5 h-5 text-red-600" />,
-    },
-    {
-      name: "数据库查询",
-      value: "18,492",
-      change: "+5%",
-      trend: "up",
-      icon: <Database className="w-5 h-5 text-purple-600" />,
-    },
-  ]
+  };
 
   const exportLogs = () => {
     const csvContent = [
-      ["时间", "用户", "角色", "操作", "资源", "详情", "IP地址", "状态"].join(","),
-      ...filteredLogs.map((log) =>
-        [
-          log.timestamp,
-          log.userName,
-          log.userRole,
-          log.action,
-          log.resource,
-          log.details,
-          log.ipAddress,
-          log.status,
-        ].join(","),
-      ),
-    ].join("\n")
+      ["ID", "时间", "用户名", "操作类型Key", "操作描述", "服务名", "IP地址", "状态", "耗时(ms)"].join(","),
+      ...logs.map(log => [
+        log.id,
+        `"${new Date(log.createdAt).toLocaleString('zh-CN')}"`,
+        log.username,
+        log.operationType,
+        `"${OPERATION_TYPE_MAP[log.operationType as keyof typeof OPERATION_TYPE_MAP]?.description || log.operationType}"`,
+        log.serviceName,
+        log.requestIp,
+        log.status === 0 ? "成功" : "失败",
+        log.duration
+      ].join(","))
+    ].join("\n");
 
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" })
-    const link = document.createElement("a")
-    const url = URL.createObjectURL(blob)
-    link.setAttribute("href", url)
-    link.setAttribute("download", `audit_logs_${new Date().toISOString().split("T")[0]}.csv`)
-    link.style.visibility = "hidden"
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-  }
+    const blob = new Blob([`\uFEFF${csvContent}`], { type: "text/csv;charset=utf-8;" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = `audit_logs_${activeTab}_page_${currentPage}_${new Date().toISOString().split("T")[0]}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
-  if (!user) {
-    return <div>Loading...</div>
-  }
-
-  return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex justify-between items-center mb-6">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">日志审计系统</h1>
-            <p className="text-gray-600">监控系统操作和用户行为</p>
+  const renderLogTable = () => (
+    <Card>
+      <CardHeader>
+        <CardTitle>操作日志详情</CardTitle>
+        <CardDescription>在当前条件下, 共找到 {totalRecords} 条记录</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>时间</TableHead>
+                <TableHead>用户</TableHead>
+                <TableHead>操作类型</TableHead>
+                <TableHead className="hidden md:table-cell">描述</TableHead>
+                <TableHead className="hidden lg:table-cell">IP地址</TableHead>
+                <TableHead>状态</TableHead>
+                <TableHead>耗时(ms)</TableHead>
+                <TableHead>操作</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading ? (
+                <TableRow><TableCell colSpan={8} className="text-center py-12"><Loader2 className="w-8 h-8 animate-spin mx-auto text-gray-500" /></TableCell></TableRow>
+              ) : error ? (
+                <TableRow><TableCell colSpan={8} className="text-center py-12 text-red-600"><AlertTriangle className="w-8 h-8 mx-auto" /><p className="mt-2">{error}</p></TableCell></TableRow>
+              ) : logs.length > 0 ? (
+                logs.map((log) => (
+                  <TableRow key={log.id}>
+                    <TableCell className="font-mono text-xs whitespace-nowrap">{new Date(log.createdAt).toLocaleString('zh-CN', { hour12: false })}</TableCell>
+                    <TableCell>{log.username}</TableCell>
+                    <TableCell><Badge variant="outline">{OPERATION_TYPE_MAP[log.operationType as keyof typeof OPERATION_TYPE_MAP]?.description || log.operationType}</Badge></TableCell>
+                    <TableCell className="max-w-xs truncate hidden md:table-cell" title={log.description}>{log.description}</TableCell>
+                    <TableCell className="font-mono text-sm hidden lg:table-cell">{log.requestIp}</TableCell>
+                    <TableCell>{getStatusBadge(log.status)}</TableCell>
+                    <TableCell>{log.duration}</TableCell>
+                    <TableCell>
+                      <Button variant="ghost" size="icon" onClick={() => setSelectedLog(log)}>
+                        <Eye className="w-4 h-4" />
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow><TableCell colSpan={8} className="text-center py-12 text-gray-500">未找到匹配的日志记录。</TableCell></TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between mt-4">
+            <span className="text-sm text-gray-700">第 {currentPage} 页 / 共 {totalPages} 页</span>
+            <div className="flex items-center space-x-2">
+              <Button variant="outline" size="sm" onClick={() => handlePageChange(currentPage - 1)} disabled={currentPage <= 1}><ChevronLeft className="h-4 w-4 mr-1" /> 上一页</Button>
+              <Button variant="outline" size="sm" onClick={() => handlePageChange(currentPage + 1)} disabled={currentPage >= totalPages}>下一页 <ChevronRight className="h-4 w-4 ml-1" /></Button>
+            </div>
           </div>
-          <Button onClick={exportLogs}>
+        )}
+      </CardContent>
+    </Card>
+  );
+
+  // --- 渲染逻辑 ---
+  return (
+    <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
+      <div className="max-w-screen-xl mx-auto">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">日志审计仪表盘</h1>
+            <p className="text-gray-600 mt-1">监控、分析和审计所有系统操作</p>
+          </div>
+          <Button onClick={exportLogs} disabled={logs.length === 0 || isLoading} className="mt-4 sm:mt-0">
             <Download className="w-4 h-4 mr-2" />
-            导出日志
+            导出当前页
           </Button>
         </div>
 
-        {/* System Metrics */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          {systemMetrics.map((metric, index) => (
-            <Card key={index}>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium text-gray-600">{metric.name}</p>
-                    <p className="text-2xl font-bold text-gray-900">{metric.value}</p>
-                    <p
-                      className={`text-sm ${metric.trend === "up" ? "text-green-600" : metric.trend === "down" ? "text-red-600" : "text-gray-600"}`}
-                    >
-                      {metric.change}
-                    </p>
-                  </div>
-                  {metric.icon}
+        {/* 指标卡片 */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+          {systemMetrics.map((metric) => (
+            <Card key={metric.name}>
+              <CardContent className="p-6 flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-500">{metric.name}</p>
+                  <p className="text-2xl font-bold text-gray-900">{metric.value}</p>
                 </div>
+                {metric.icon}
               </CardContent>
             </Card>
           ))}
         </div>
 
-        <Tabs defaultValue="logs" className="space-y-6">
-          <TabsList>
-            <TabsTrigger value="logs">操作日志</TabsTrigger>
-            <TabsTrigger value="security">安全事件</TabsTrigger>
-            <TabsTrigger value="performance">性能监控</TabsTrigger>
-            <TabsTrigger value="reports">审计报表</TabsTrigger>
+        {/* 筛选器 */}
+        <Card className="mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center"><Filter className="w-5 h-5 mr-2" />筛选条件</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <Input
+                  placeholder="搜索用户名..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className="pl-10"
+                />
+              </div>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger><SelectValue placeholder="选择状态" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">全部状态</SelectItem>
+                  <SelectItem value="0">成功</SelectItem>
+                  <SelectItem value="1">失败</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={operationTypeFilter} onValueChange={setOperationTypeFilter}>
+                <SelectTrigger><SelectValue placeholder="按具体操作类型筛选" /></SelectTrigger>
+                <SelectContent className="max-h-96">
+                  <SelectItem value="all">全部类型</SelectItem>
+                  {Object.entries(operationTypesByModule).map(([moduleName, types]) => (
+                    <SelectGroup key={moduleName}>
+                      <SelectLabel>{moduleName}</SelectLabel>
+                      {types.map(type => (
+                        <SelectItem key={type.key} value={type.key}>{type.description}</SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ))}
+                </SelectContent>
+              </Select>
+              <DatePickerWithRange
+                date={{ from: dateRange.from, to: dateRange.to }}
+                onDateChange={(range) => setDateRange({ from: range?.from, to: range?.to })}
+              />
+            </div>
+          </CardContent>
+        </Card>
+
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+          <TabsList className="grid w-full grid-cols-2 md:grid-cols-4">
+            <TabsTrigger value="all">全部日志</TabsTrigger>
+            <TabsTrigger value="班级管理">班级管理</TabsTrigger>
+            <TabsTrigger value="实验管理">实验管理</TabsTrigger>
+            <TabsTrigger value="analytics">数据分析</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="logs">
-            {/* Filters */}
-            <Card className="mb-6">
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Filter className="w-5 h-5 mr-2" />
-                  筛选条件
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div>
-                    <label className="text-sm font-medium mb-2 block">搜索</label>
-                    <div className="relative">
-                      <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
-                      <Input
-                        placeholder="搜索用户、操作、资源..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="pl-10"
-                      />
-                    </div>
-                  </div>
+          <TabsContent value="all">{renderLogTable()}</TabsContent>
+          <TabsContent value="班级管理">{renderLogTable()}</TabsContent>
+          <TabsContent value="实验管理">{renderLogTable()}</TabsContent>
 
-                  <div>
-                    <label className="text-sm font-medium mb-2 block">状态</label>
-                    <Select value={statusFilter} onValueChange={setStatusFilter}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="选择状态" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">全部状态</SelectItem>
-                        <SelectItem value="success">成功</SelectItem>
-                        <SelectItem value="warning">警告</SelectItem>
-                        <SelectItem value="error">错误</SelectItem>
-                        <SelectItem value="info">信息</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <label className="text-sm font-medium mb-2 block">分类</label>
-                    <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="选择分类" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">全部分类</SelectItem>
-                        <SelectItem value="auth">认证</SelectItem>
-                        <SelectItem value="project">项目</SelectItem>
-                        <SelectItem value="resource">资源</SelectItem>
-                        <SelectItem value="system">系统</SelectItem>
-                        <SelectItem value="grade">成绩</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div>
-                    <label className="text-sm font-medium mb-2 block">日期范围</label>
-                    <DatePickerWithRange date={dateRange} onDateChange={setDateRange} />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Logs Table */}
-            <Card>
-              <CardHeader>
-                <CardTitle>操作日志 ({filteredLogs.length} 条记录)</CardTitle>
-                <CardDescription>系统中所有用户操作的详细记录</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>时间</TableHead>
-                        <TableHead>用户</TableHead>
-                        <TableHead>操作</TableHead>
-                        <TableHead>资源</TableHead>
-                        <TableHead>详情</TableHead>
-                        <TableHead>IP地址</TableHead>
-                        <TableHead>状态</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredLogs.map((log) => (
-                        <TableRow key={log.id}>
-                          <TableCell className="font-mono text-sm">{log.timestamp}</TableCell>
-                          <TableCell>
-                            <div>
-                              <div className="font-medium">{log.userName}</div>
-                              <div className="text-sm text-gray-500">{getCategoryLabel(log.userRole)}</div>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{log.action}</Badge>
-                          </TableCell>
-                          <TableCell>{log.resource}</TableCell>
-                          <TableCell className="max-w-xs truncate" title={log.details}>
-                            {log.details}
-                          </TableCell>
-                          <TableCell className="font-mono text-sm">{log.ipAddress}</TableCell>
-                          <TableCell>
-                            <div className="flex items-center space-x-2">
-                              {getStatusIcon(log.status)}
-                              {getStatusBadge(log.status)}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="security">
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center">
-                  <Shield className="w-5 h-5 mr-2" />
-                  安全事件监控
-                </CardTitle>
-                <CardDescription>系统安全相关的事件和警报</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between p-4 border border-red-200 bg-red-50 rounded-lg">
-                    <div className="flex items-center space-x-3">
-                      <XCircle className="w-5 h-5 text-red-600" />
-                      <div>
-                        <p className="font-medium text-red-900">多次登录失败</p>
-                        <p className="text-sm text-red-700">IP: 192.168.1.102 在5分钟内尝试登录失败3次</p>
-                      </div>
-                    </div>
-                    <Badge variant="destructive">高风险</Badge>
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 border border-yellow-200 bg-yellow-50 rounded-lg">
-                    <div className="flex items-center space-x-3">
-                      <AlertTriangle className="w-5 h-5 text-yellow-600" />
-                      <div>
-                        <p className="font-medium text-yellow-900">异常访问时间</p>
-                        <p className="text-sm text-yellow-700">用户在非工作时间（凌晨2:30）访问系统</p>
-                      </div>
-                    </div>
-                    <Badge variant="secondary">中风险</Badge>
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 border border-blue-200 bg-blue-50 rounded-lg">
-                    <div className="flex items-center space-x-3">
-                      <Info className="w-5 h-5 text-blue-600" />
-                      <div>
-                        <p className="font-medium text-blue-900">权限变更</p>
-                        <p className="text-sm text-blue-700">管理员修改了用户权限设置</p>
-                      </div>
-                    </div>
-                    <Badge variant="outline">低风险</Badge>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
-          <TabsContent value="performance">
+          <TabsContent value="analytics">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <Card>
                 <CardHeader>
-                  <CardTitle>系统性能指标</CardTitle>
+                  <CardTitle>操作类型分布</CardTitle>
+                  <CardDescription>基于当前页筛选结果的统计</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center">
-                      <span>CPU使用率</span>
-                      <span className="font-semibold">45%</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span>内存使用率</span>
-                      <span className="font-semibold">62%</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span>磁盘使用率</span>
-                      <span className="font-semibold">78%</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span>网络延迟</span>
-                      <span className="font-semibold">23ms</span>
-                    </div>
-                  </div>
+                  <ResponsiveContainer width="100%" height={350}>
+                    <BarChart data={operationTypeDistribution} layout="vertical" margin={{ top: 5, right: 30, left: 80, bottom: 5 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis type="number" />
+                      <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 12 }} />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="count" name="数量" fill="#3b82f6" />
+                    </BarChart>
+                  </ResponsiveContainer>
                 </CardContent>
               </Card>
-
               <Card>
                 <CardHeader>
-                  <CardTitle>响应时间统计</CardTitle>
+                  <CardTitle>未来展望：日志趋势</CardTitle>
+                  <CardDescription>此功能需后端提供专门的聚合API支持</CardDescription>
                 </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center">
-                      <span>平均响应时间</span>
-                      <span className="font-semibold">120ms</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span>最大响应时间</span>
-                      <span className="font-semibold">850ms</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span>最小响应时间</span>
-                      <span className="font-semibold">45ms</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span>超时请求数</span>
-                      <span className="font-semibold">3</span>
-                    </div>
+                <CardContent className="flex items-center justify-center h-[350px]">
+                  <div className="text-center text-gray-500">
+                    <ClipboardList size={48} className="mx-auto" />
+                    <p className="mt-4">全时段的日志趋势图正在规划中。</p>
+                    <p className="text-sm">需要后端开发按时间聚合数据的接口。</p>
                   </div>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="reports">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              <Card className="cursor-pointer hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Calendar className="w-5 h-5 mr-2" />
-                    日报表
-                  </CardTitle>
-                  <CardDescription>生成今日系统使用情况报表</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button className="w-full">生成日报表</Button>
-                </CardContent>
-              </Card>
-
-              <Card className="cursor-pointer hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Calendar className="w-5 h-5 mr-2" />
-                    周报表
-                  </CardTitle>
-                  <CardDescription>生成本周系统使用情况报表</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button className="w-full">生成周报表</Button>
-                </CardContent>
-              </Card>
-
-              <Card className="cursor-pointer hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Calendar className="w-5 h-5 mr-2" />
-                    月报表
-                  </CardTitle>
-                  <CardDescription>生成本月系统使用情况报表</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button className="w-full">生成月报表</Button>
-                </CardContent>
-              </Card>
-
-              <Card className="cursor-pointer hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Users className="w-5 h-5 mr-2" />
-                    用户行为报表
-                  </CardTitle>
-                  <CardDescription>分析用户使用行为和模式</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button className="w-full">生成用户报表</Button>
-                </CardContent>
-              </Card>
-
-              <Card className="cursor-pointer hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Shield className="w-5 h-5 mr-2" />
-                    安全审计报表
-                  </CardTitle>
-                  <CardDescription>生成安全事件和风险评估报表</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button className="w-full">生成安全报表</Button>
-                </CardContent>
-              </Card>
-
-              <Card className="cursor-pointer hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <CardTitle className="flex items-center">
-                    <Activity className="w-5 h-5 mr-2" />
-                    性能报表
-                  </CardTitle>
-                  <CardDescription>生成系统性能和资源使用报表</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <Button className="w-full">生成性能报表</Button>
                 </CardContent>
               </Card>
             </div>
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* 日志详情弹窗 */}
+      <Dialog open={!!selectedLog} onOpenChange={(isOpen) => !isOpen && setSelectedLog(null)}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>日志详情</DialogTitle>
+            <DialogDescription>ID: {selectedLog?.id}</DialogDescription>
+          </DialogHeader>
+          {selectedLog && (
+            <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div><Label>时间</Label><p className="text-sm">{new Date(selectedLog.createdAt).toLocaleString('zh-CN')}</p></div>
+                <div><Label>用户名</Label><p className="text-sm">{selectedLog.username}</p></div>
+                <div><Label>服务名</Label><p className="text-sm">{selectedLog.serviceName}</p></div>
+                <div><Label>IP 地址</Label><p className="text-sm font-mono">{selectedLog.requestIp}</p></div>
+                <div><Label>操作类型</Label><span><Badge variant="secondary">{OPERATION_TYPE_MAP[selectedLog.operationType as keyof typeof OPERATION_TYPE_MAP]?.description || selectedLog.operationType}</Badge></span></div>
+                <div><Label>状态</Label><div>{getStatusBadge(selectedLog.status)}</div></div>
+                <div><Label>响应耗时</Label><p className="text-sm">{selectedLog.duration} ms</p></div>
+              </div>
+              <div>
+                <Label>操作描述</Label>
+                <p className="p-2 bg-gray-100 rounded-md text-sm">{selectedLog.description}</p>
+              </div>
+              <div>
+                <Label>请求参数</Label>
+                <pre className="p-3 bg-gray-900 text-white rounded-md text-xs overflow-x-auto">
+                  {(() => {
+                    try {
+                      return JSON.stringify(JSON.parse(selectedLog.requestParams || '{}'), null, 2);
+                    } catch (e) {
+                      return "无法解析的参数格式:\n" + selectedLog.requestParams;
+                    }
+                  })()}
+                </pre>
+              </div>
+              {/* 新增：显示响应结果 */}
+              {selectedLog.responseResult && (
+                <div>
+                  <Label>响应结果</Label>
+                  <pre className="p-3 bg-gray-800 text-white rounded-md text-xs overflow-x-auto">
+                    {(() => {
+                      try {
+                        return JSON.stringify(JSON.parse(selectedLog.responseResult || '{}'), null, 2);
+                      } catch (e) {
+                        return selectedLog.responseResult;
+                      }
+                    })()}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
