@@ -93,7 +93,7 @@ export default function ResourcesPage() {
 
     const parsedUser = JSON.parse(userData)
     setUser(parsedUser)
-    setNewResource(prev => ({...prev, userName: parsedUser.name}))
+    setNewResource(prev => ({...prev, userName: parsedUser.username}))
 
     fetchResources()
   }, [router])
@@ -197,6 +197,10 @@ export default function ResourcesPage() {
       return
     }
 
+    // 打印当前用户信息用于调试
+    console.log("当前用户信息:", user);
+    console.log("上传使用的用户名:", newResource.userName);
+
     const formData = new FormData()
     formData.append('userName', newResource.userName)
     formData.append('description', newResource.description)
@@ -209,6 +213,12 @@ export default function ResourcesPage() {
 
     // 添加文件
     formData.append('file', newResource.file)
+
+    // 打印表单数据内容
+    console.log("表单数据内容:");
+    for (const [key, value] of formData.entries()) {
+      console.log(`${key}:`, value);
+    }
 
     try {
       console.log("上传表单数据:", {
@@ -308,41 +318,52 @@ export default function ResourcesPage() {
 
 
 
-  const handleDelete = async (fileName: string) => {
-    if (user?.role !== 'admin'&& user?.role !== 'teacher') {
-      toast.error('只有管理员可以删除资源');
+
+  const handleDelete = async (fileName: string, userName: string) => {
+
+
+    const userData = localStorage.getItem('user')
+    if (!userData) {
+      alert("用户信息不存在，请重新登录");
       return;
     }
+    const parsedUser = JSON.parse(userData)
+    console.log('当前用户名:',parsedUser.username)
+    console.log('资源用户名:',userName)
+    // 检查权限：管理员可以删除所有，教师只能删除自己上传的
+    if (user?.role === 'admin' || (user?.role === 'teacher' && parsedUser.username === userName)) {
+      if (!confirm(`确定要删除资源 "${fileName}" 吗？`)) return
 
-    if (!confirm(`确定要删除资源 "${fileName}" 吗？`)) return
+      try {
+        const headers = getAuthHeaders();
+        console.log("删除资源请求:", {
+          url: `${API_BASE_URL}/delete?fileName=${encodeURIComponent(fileName)}`,
+          method: 'DELETE',
+          headers: headers
+        });
 
-    try {
-      const headers = getAuthHeaders();
-      console.log("删除资源请求:", {
-        url: `${API_BASE_URL}/delete?fileName=${encodeURIComponent(fileName)}`,
-        method: 'DELETE',
-        headers: headers
-      });
+        const response = await fetch(
+            `${API_BASE_URL}/delete?fileName=${encodeURIComponent(fileName)}`,
+            {
+              method: 'DELETE',
+              headers
+            }
+        )
 
-      const response = await fetch(
-          `${API_BASE_URL}/delete?fileName=${encodeURIComponent(fileName)}`,
-          {
-            method: 'DELETE',
-            headers
-          }
-      )
+        const result = await response.text()
+        console.log("删除响应:", result);
 
-      const result = await response.text()
-      console.log("删除响应:", result);
-
-      if (response.ok) {
-        toast.success('资源删除成功')
-        fetchResources()
-      } else {
-        toast.error('删除失败: ' + result)
+        if (response.ok) {
+          toast.success('资源删除成功')
+          fetchResources()
+        } else {
+          toast.error('删除失败: ' + result)
+        }
+      } catch (error) {
+        toast.error('删除失败: ' + (error as Error).message)
       }
-    } catch (error) {
-      toast.error('删除失败: ' + (error as Error).message)
+    } else {
+      toast.error('您没有权限删除此资源')
     }
   }
 
@@ -386,9 +407,10 @@ export default function ResourcesPage() {
     toast.success('资源已批准')
   }
 
-  const handleReject = async (id: number, fileName: string) => {
+  // 修改后的handleReject函数
+  const handleReject = async (id: number, fileName: string, userName: string) => {
     if (confirm(`确定要拒绝资源 "${fileName}" 吗？`)) {
-      await handleDelete(fileName)
+      await handleDelete(fileName, userName)
     }
   }
 
@@ -647,8 +669,7 @@ export default function ResourcesPage() {
                               <Button
                                   size="sm"
                                   variant="outline"
-                                  onClick={() => handleDelete(resource.fileName)}
-                                  disabled={user.role !== 'admin'}
+                                  onClick={() => handleDelete(resource.fileName, resource.userName)}
                               >
                                 <X className="w-4 h-4 mr-2" />
                                 删除
@@ -691,7 +712,7 @@ export default function ResourcesPage() {
                                     <ThumbsUp className="w-4 h-4 mr-2" />
                                     收藏
                                   </Button>
-                                  <Button size="sm"  onClick={() => handleDelete(resource.fileName)}>
+                                  <Button size="sm"  onClick={() =>handleDelete(resource.fileName, resource.userName)}>
                                     <ThumbsUp className="w-4 h-4 mr-2" />
                                     删除
                                   </Button>
@@ -783,7 +804,7 @@ export default function ResourcesPage() {
                                       <div className="flex gap-2">
                                         <Button
                                             variant="outline"
-                                            onClick={() => handleReject(resource.id, resource.fileName)}
+                                            onClick={() => handleReject(resource.id, resource.fileName, resource.userName)}
                                         >
                                           <X className="w-4 h-4 mr-2" />
                                           拒绝
