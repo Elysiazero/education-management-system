@@ -291,6 +291,13 @@ export default function HomePage() {
     // 管理员的模块
     const adminModules = [
       {
+        title: "资源管理",
+        description: "浏览和管理教学资源库",
+        icon: <BookOpen className="w-8 h-8 text-green-600" />,
+        href: "/resources",
+        color: "bg-green-50 hover:bg-green-100",
+      },
+      {
         title: "用户管理",
         description: "管理系统用户和权限",
         icon: <Users className="w-8 h-8 text-orange-600" />,

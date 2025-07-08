@@ -59,6 +59,9 @@ export default function ResourcesPage() {
   })
   const [activeTab, setActiveTab] = useState('all')
   const [isLoading, setIsLoading] = useState(true)
+  const [showDownloadDialog, setShowDownloadDialog] = useState(false);
+  const [currentDownloadFile, setCurrentDownloadFile] = useState<string | null>(null);
+  const [downloadPath, setDownloadPath] = useState("C:/Users/");
   const router = useRouter()
   const API_BASE_URL = "http://localhost:8080";
 
@@ -90,7 +93,7 @@ export default function ResourcesPage() {
 
     const parsedUser = JSON.parse(userData)
     setUser(parsedUser)
-    setNewResource(prev => ({...prev, userName: parsedUser.name}))
+    setNewResource(prev => ({...prev, userName: parsedUser.username}))
 
     fetchResources()
   }, [router])
@@ -147,8 +150,8 @@ export default function ResourcesPage() {
               (b.metadata?.size || '0MB').localeCompare(a.metadata?.size || '0MB'))
           .slice(0, 5)
     } else {
-      // 全部资源：显示已审核的
-      filtered = filtered.filter(r => r.approved)
+      // 为你推荐
+      filtered = [...filtered]
     }
 
     // 应用搜索和筛选条件
@@ -194,6 +197,10 @@ export default function ResourcesPage() {
       return
     }
 
+    // 打印当前用户信息用于调试
+    console.log("当前用户信息:", user);
+    console.log("上传使用的用户名:", newResource.userName);
+
     const formData = new FormData()
     formData.append('userName', newResource.userName)
     formData.append('description', newResource.description)
@@ -206,6 +213,12 @@ export default function ResourcesPage() {
 
     // 添加文件
     formData.append('file', newResource.file)
+
+    // 打印表单数据内容
+    console.log("表单数据内容:");
+    for (const [key, value] of formData.entries()) {
+      console.log(`${key}:`, value);
+    }
 
     try {
       console.log("上传表单数据:", {
@@ -250,95 +263,112 @@ export default function ResourcesPage() {
     }
   }
 
-  const handleDownload = async (fileName: string) => {
-    try {
-      // 获取资源详情
-      const resource = resources.find(r => r.fileName === fileName)
-      if (!resource) {
-        toast.error('找不到资源信息')
-        return
-      }
 
-      // 创建临时下载链接 - 确保浏览器直接下载文件
-      const tempLink = document.createElement('a')
-      tempLink.href = resource.ossUrl
-      tempLink.download = fileName; // 确保设置下载文件名
-      tempLink.style.display = 'none'; // 隐藏元素
-      document.body.appendChild(tempLink)
-      tempLink.click()
-
-      // 延迟移除元素，确保点击事件完成
-      setTimeout(() => {
-        document.body.removeChild(tempLink)
-      }, 100)
-
-      toast.success(`开始下载: ${fileName}`)
-
-      // 异步调用下载API记录下载事件
-      try {
-        // 浏览器环境下无法指定具体路径，使用通用路径
-        const downloadPath = `/downloads/${fileName}`
-
-        const headers = getAuthHeaders();
-        console.log("下载记录请求:", {
-          url: `${API_BASE_URL}/download?fileName=${encodeURIComponent(fileName)}&localFilePath=${encodeURIComponent(downloadPath)}`,
-          headers: headers
-        });
-
-        const downloadResponse = await fetch(
-            `${API_BASE_URL}/download?fileName=${encodeURIComponent(fileName)}&localFilePath=${encodeURIComponent(downloadPath)}`,
-            { headers }
-        )
-
-        const result = await downloadResponse.text()
-        console.log("下载记录响应:", result)
-
-        if (!downloadResponse.ok) {
-          console.warn('下载记录失败: ' + result)
-        }
-      } catch (error) {
-        console.error('下载记录错误: ' + (error as Error).message)
-      }
-    } catch (error) {
-      toast.error('下载失败: ' + (error as Error).message)
-    }
-  }
-
-  const handleDelete = async (fileName: string) => {
-    if (user?.role !== 'admin') {
-      toast.error('只有管理员可以删除资源');
+  /**
+   * 请求后端把 OSS 文件保存到用户指定的 fileURL/localFilePath。
+   * 前端只负责拼参和提示。
+   *
+   * @param fileName       要下载的文件名
+   * @param localFilePath    用户输入的保存位置（与上传端的 fileURL 含义保持一致）
+   */
+  const handleDownload = async (fileName: string, localFilePath: string) => {
+    if (!localFilePath) {
+      toast.error('请输入保存路径（localFilePath）');
       return;
     }
 
-    if (!confirm(`确定要删除资源 "${fileName}" 吗？`)) return
-
     try {
-      const headers = getAuthHeaders();
-      console.log("删除资源请求:", {
-        url: `${API_BASE_URL}/delete?fileName=${encodeURIComponent(fileName)}`,
-        method: 'DELETE',
-        headers: headers
-      });
+      toast.info(`已发送下载请求：${fileName}`);
 
-      const response = await fetch(
-          `${API_BASE_URL}/delete?fileName=${encodeURIComponent(fileName)}`,
-          {
-            method: 'DELETE',
-            headers
-          }
-      )
+      // 统一鉴权头
+      const headers = getAuthHeaders(); // 如果没有文件体，可直接用 JSON/表单都行
 
-      const result = await response.text()
-      console.log("删除响应:", result);
+      // 直接把参数拼到查询串（后端文档要求）
+      const reqUrl = `${API_BASE_URL}/download` +
+          `?fileName=${encodeURIComponent(fileName)}` +
+          `&localFilePath=${encodeURIComponent(localFilePath)}`;
 
-      if (response.ok) {
-        toast.success('资源删除成功')
-        fetchResources()
+      const res = await fetch(reqUrl, { headers });
+
+      // 后端负责真正下载；这里仅按返回状态给提示
+      const text = await res.text();
+      if (res.ok) {
+        toast.success(text || '下载任务已提交，稍后在指定路径查看。');
       } else {
-        toast.error('删除失败: ' + result)
+        toast.error(`下载请求失败：${text}`);
       }
-    } catch (error) {
-      toast.error('删除失败: ' + (error as Error).message)
+    } catch (err) {
+      toast.error(`下载失败：${(err as Error).message}`);
+      console.error('下载错误详情:', err);
+    }
+  };
+
+  const triggerDownload = (fileName: string) => {
+    console.log("触发下载弹窗，文件名:", fileName);
+    const resource = resources.find(r => r.fileName === fileName);
+    if (!resource) {
+      toast.error('找不到资源信息');
+      return;
+    }
+    console.log("设置当前下载文件:", fileName);
+    setCurrentDownloadFile(fileName);
+    console.log("显示下载弹窗");
+    setShowDownloadDialog(true);
+  };
+
+
+
+
+  const handleDelete = async (fileName: string, userName: string) => {
+    const userData = localStorage.getItem('user')
+    if (!userData) {
+      alert("用户信息不存在，请重新登录");
+      return;
+    }
+
+    const parsedUser = JSON.parse(userData)
+    console.log('当前用户名:', parsedUser.username)
+    console.log('资源用户名:', userName)
+
+    // 检查权限：管理员可以删除所有，教师只能删除自己上传的
+    const isAdmin = user?.role === 'admin';
+    const isOwner = user?.role === 'teacher' && parsedUser.username === userName;
+
+    if (isAdmin || isOwner) {
+      if (!confirm(`确定要删除资源 "${fileName}" 吗？`)) return
+
+      try {
+        const headers = getAuthHeaders();
+        console.log("删除资源请求:", {
+          url: `${API_BASE_URL}/delete?fileName=${encodeURIComponent(fileName)}`,
+          method: 'DELETE',
+          headers: headers
+        });
+
+        const response = await fetch(
+            `${API_BASE_URL}/delete?fileName=${encodeURIComponent(fileName)}`,
+            { method: 'DELETE', headers }
+        )
+
+        const result = await response.text()
+        console.log("删除响应:", result);
+
+        if (response.ok) {
+          toast.success('资源删除成功')
+          fetchResources()
+        } else {
+          toast.error('删除失败: ' + result)
+        }
+      } catch (error) {
+        toast.error('删除失败: ' + (error as Error).message)
+      }
+    } else {
+      // 特定提示：教师尝试删除他人资源
+      if (user?.role === 'teacher') {
+        alert('您不是管理员，只能删除自己上传的资源');
+      } else {
+        alert('您没有权限删除此资源');
+      }
     }
   }
 
@@ -382,9 +412,10 @@ export default function ResourcesPage() {
     toast.success('资源已批准')
   }
 
-  const handleReject = async (id: number, fileName: string) => {
+  // 修改后的handleReject函数
+  const handleReject = async (id: number, fileName: string, userName: string) => {
     if (confirm(`确定要拒绝资源 "${fileName}" 吗？`)) {
-      await handleDelete(fileName)
+      await handleDelete(fileName, userName)
     }
   }
 
@@ -432,6 +463,39 @@ export default function ResourcesPage() {
   return (
       <div className="min-h-screen bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {/* 下载路径弹窗 */}
+          <Dialog open={showDownloadDialog} onOpenChange={setShowDownloadDialog}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>设置下载路径</DialogTitle>
+                <DialogDescription>请输入文件保存路径</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="downloadPath">保存路径</Label>
+                  <Input
+                      id="downloadPath"
+                      value={downloadPath}
+                      onChange={(e) => setDownloadPath(e.target.value)}
+                      placeholder="输入文件保存路径"
+                  />
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={() => {
+                    setShowDownloadDialog(false);
+                    toast.warning('下载已取消');
+                  }}>取消</Button>
+                  <Button onClick={() => {
+                    if (currentDownloadFile) {
+                      setShowDownloadDialog(false);
+                      handleDownload(currentDownloadFile, downloadPath);
+                    }
+                  }}>开始下载</Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
           <div className="flex justify-between items-center mb-6">
             <div>
               <h1 className="text-3xl font-bold text-gray-900">教学资源管理</h1>
@@ -610,15 +674,14 @@ export default function ResourcesPage() {
                               <Button
                                   size="sm"
                                   variant="outline"
-                                  onClick={() => handleDelete(resource.fileName)}
-                                  disabled={user.role !== 'admin'}
+                                  onClick={() => handleDelete(resource.fileName, resource.userName)}
                               >
                                 <X className="w-4 h-4 mr-2" />
                                 删除
                               </Button>
                               <Button
                                   size="sm"
-                                  onClick={() => handleDownload(resource.fileName)}
+                                  onClick={() => triggerDownload(resource.fileName)}
                               >
                                 <Download className="w-4 h-4 mr-2" />
                                 下载资源
@@ -633,36 +696,41 @@ export default function ResourcesPage() {
                 <TabsContent value="recent" className="pt-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {filteredResources.map((resource) => (
-                        <Card key={resource.id} className="hover:shadow-lg transition-shadow">
-                          <CardHeader className="pb-3">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center">
-                                {getTypeIcon(resource.resourceType)}
-                                <CardTitle className="text-lg ml-2 line-clamp-1">{resource.fileName}</CardTitle>
-                              </div>
-                              <span className="flex items-center text-gray-500 text-sm">
+                        console.log("渲染资源:", filteredResources),
+                            <Card key={resource.id} className="hover:shadow-lg transition-shadow">
+                              <CardHeader className="pb-3">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center">
+                                    {getTypeIcon(resource.resourceType)}
+                                    <CardTitle className="text-lg ml-2 line-clamp-1">{resource.fileName}</CardTitle>
+                                  </div>
+                                  <span className="flex items-center text-gray-500 text-sm">
                           <Clock className="w-4 h-4 mr-1" />
-                                {new Date(resource.createdAt).toLocaleDateString()}
+                                    {new Date(resource.createdAt).toLocaleDateString()}
                         </span>
-                            </div>
-                            <CardDescription className="line-clamp-2 mt-2">{resource.description}</CardDescription>
-                          </CardHeader>
-                          <CardContent>
-                            <div className="flex justify-between items-center mt-4">
-                              <Button size="sm" variant="outline">
-                                <ThumbsUp className="w-4 h-4 mr-2" />
-                                收藏
-                              </Button>
-                              <Button
-                                  size="sm"
-                                  onClick={() => handleDownload(resource.fileName)}
-                              >
-                                <Download className="w-4 h-4 mr-2" />
-                                下载
-                              </Button>
-                            </div>
-                          </CardContent>
-                        </Card>
+                                </div>
+                                <CardDescription className="line-clamp-2 mt-2">{resource.description}</CardDescription>
+                              </CardHeader>
+                              <CardContent>
+                                <div className="flex justify-between items-center mt-4">
+                                  <Button size="sm" variant="outline">
+                                    <ThumbsUp className="w-4 h-4 mr-2" />
+                                    收藏
+                                  </Button>
+                                  <Button size="sm"  onClick={() =>handleDelete(resource.fileName, resource.userName)}>
+                                    <ThumbsUp className="w-4 h-4 mr-2" />
+                                    删除
+                                  </Button>
+                                  <Button
+                                      size="sm"
+                                      onClick={() => triggerDownload(resource.fileName)}
+                                  >
+                                    <Download className="w-4 h-4 mr-2" />
+                                    下载
+                                  </Button>
+                                </div>
+                              </CardContent>
+                            </Card>
                     ))}
                   </div>
                 </TabsContent>
@@ -689,7 +757,7 @@ export default function ResourcesPage() {
                               <span className="text-sm text-gray-600">{resource.userName}</span>
                               <Button
                                   size="sm"
-                                  onClick={() => handleDownload(resource.fileName)}
+                                  onClick={() => triggerDownload(resource.fileName)}
                               >
                                 <Download className="w-4 h-4 mr-2" />
                                 下载
@@ -741,7 +809,7 @@ export default function ResourcesPage() {
                                       <div className="flex gap-2">
                                         <Button
                                             variant="outline"
-                                            onClick={() => handleReject(resource.id, resource.fileName)}
+                                            onClick={() => handleReject(resource.id, resource.fileName, resource.userName)}
                                         >
                                           <X className="w-4 h-4 mr-2" />
                                           拒绝
