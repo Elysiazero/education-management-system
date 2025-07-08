@@ -14,22 +14,30 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { Search, Plus, Edit, Trash2, Download, Upload, Users, UserCheck, UserX, Shield, Activity } from "lucide-react"
+import {
+  Search,
+  Plus,
+  Edit,
+  Trash2,
+  Users,
+  Shield,
+  Loader2
+} from "lucide-react"
 import { toast } from "sonner"
 
 interface User {
   id: number
+  userName: string
   realName: string
   email: string
   phone?: string
   roleIds: number[]
-  status: number
-  userName: string
 }
 
 interface RoleDistribution {
@@ -45,7 +53,6 @@ export default function UserManagementPage() {
   const [roleDistribution, setRoleDistribution] = useState<RoleDistribution[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [roleFilter, setRoleFilter] = useState<string>("all")
-  const [statusFilter, setStatusFilter] = useState<string>("all")
   const [selectedUser, setSelectedUser] = useState<User | null>(null)
   const [showUserDialog, setShowUserDialog] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
@@ -55,53 +62,92 @@ export default function UserManagementPage() {
     email: "",
     phone: "",
     password: "Test@123",
-    roleIds: [2], // 默认教师角色
-    status: 1 // 默认活跃
+    roleIds: [2]
   })
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [userToDelete, setUserToDelete] = useState<number | null>(null)
   const router = useRouter()
+  const [saving, setSaving] = useState(false);
+  const [emailError, setEmailError] = useState("")
+  const [phoneError, setPhoneError] = useState("")
 
   // 获取访问令牌
   const getAccessToken = () => {
-    return localStorage.getItem("accessToken")
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem("accessToken")
+    }
+    return null
+  }
+
+  // 角色名称到ID映射
+  const roleNameToIdMap: Record<string, number> = {
+    "系统管理员": 1,
+    "管理员": 1,
+    "教师": 2,
+    "学生": 3,
+    "ROLE_ADMIN": 1,
+    "ROLE_TEACHER": 2,
+    "ROLE_STUDENT": 3
   }
 
   // 获取当前用户信息
   const fetchCurrentUser = async () => {
+    if (typeof window === 'undefined') return null;
+
     const userData = localStorage.getItem("user")
     if (!userData) {
       router.push("/login")
       return null
     }
 
-    const parsedUser = JSON.parse(userData)
-    if (parsedUser.role !== "admin") {
-      router.push("/")
+    try {
+      const parsedUser = JSON.parse(userData)
+      if (parsedUser.role !== "admin") {
+        router.push("/")
+        return null
+      }
+      return parsedUser
+    } catch (error) {
+      console.error("解析用户数据错误:", error)
+      router.push("/login")
       return null
     }
-
-    return parsedUser
   }
 
   // 获取用户列表
   const fetchUsers = async () => {
     try {
-      const token = localStorage.getItem('accessToken');
-      console.log('token:',token)
-      const response = await fetch("http://localhost:8080/api/admin/users?page=1&limit=100", {
+      const token = getAccessToken();
+      if (!token) {
+        toast.error("未找到访问令牌")
+        return []
+      }
+
+      const response = await fetch("http://localhost:8080/api/v1/auth/admin/users?page=1&limit=100", {
         headers: {
           "Authorization": `Bearer ${token}`
         }
       })
 
       if (!response.ok) {
-        // 尝试读取错误响应体
         const errorData = await response.text();
         console.error("服务器错误详情:", errorData);
         throw new Error(`获取用户列表失败: ${response.status} - ${errorData}`);
       }
 
       const data = await response.json()
-      return data.users || []
+
+      // 映射后端数据到前端接口
+      const mappedUsers = data.users.map((user: any) => ({
+        id: user.id,
+        userName: user.username || "", // 确保有用户名
+        realName: user.name || "",
+        email: user.email || "",
+        phone: user.phone || "",
+        roleIds: user.roles.map((role: string) => roleNameToIdMap[role] || 0)
+      }))
+
+      return mappedUsers
     } catch (error) {
       console.error("获取用户列表错误:", error)
       toast.error("获取用户列表失败")
@@ -109,12 +155,54 @@ export default function UserManagementPage() {
     }
   }
 
+  // 获取单个用户详情（用于编辑）
+  const fetchUserDetail = async (userId: number) => {
+    try {
+      const token = getAccessToken();
+      if (!token) {
+        toast.error("未找到访问令牌");
+        return null;
+      }
+
+      const response = await fetch(`http://localhost:8080/api/v1/me/${userId}`, {
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error("获取用户详情失败");
+      }
+
+      const userData = await response.json();
+
+      return {
+        id: userData.id,
+        userName: userData.username,
+        realName: userData.realName,
+        email: userData.email,
+        phone: userData.phoneNumber,
+        roleIds: userData.roles.map((role: string) => roleNameToIdMap[role] || 0)
+      };
+    } catch (error) {
+      console.error("获取用户详情错误:", error);
+      toast.error("获取用户详情失败");
+      return null;
+    }
+  };
+
   // 获取角色分布统计
   const fetchRoleDistribution = async () => {
     try {
-      const response = await fetch("http://localhost:8080/api/admin/analytics/role-distribution", {
+      const token = getAccessToken();
+      if (!token) {
+        toast.error("未找到访问令牌")
+        return []
+      }
+
+      const response = await fetch("http://localhost:8080/api/v1/auth/admin/analytics/role-distribution", {
         headers: {
-          "Authorization": `Bearer ${getAccessToken()}`
+          "Authorization": `Bearer ${token}`
         }
       })
 
@@ -122,7 +210,19 @@ export default function UserManagementPage() {
         throw new Error("获取角色分布统计失败")
       }
 
-      return await response.json()
+      const data = await response.json()
+
+      // 映射角色名称
+      const roleNameMap: Record<string, string> = {
+        "ROLE_ADMIN": "管理员",
+        "ROLE_TEACHER": "教师",
+        "ROLE_STUDENT": "学生"
+      }
+
+      return data.map((item: any) => ({
+        ...item,
+        role: roleNameMap[item.role] || item.role
+      }))
     } catch (error) {
       console.error("获取角色分布统计错误:", error)
       toast.error("获取角色分布统计失败")
@@ -130,138 +230,190 @@ export default function UserManagementPage() {
     }
   }
 
-  // 创建用户
   const createUser = async (userData: any) => {
     try {
-      const response = await fetch("http://localhost:8080/api/admin/users", {
+      const token = getAccessToken();
+      if (!token) {
+        toast.error("未找到访问令牌");
+        return false;
+      }
+
+      const payload = {
+        userName: userData.userName,
+        realName: userData.realName,
+        email: userData.email,
+        phone: userData.phone,
+        password: userData.password,
+        roleIds: userData.roleIds
+      };
+
+      const response = await fetch("http://localhost:8080/api/v1/auth/admin/users", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${getAccessToken()}`
+          "Authorization": `Bearer ${token}`
         },
-        body: JSON.stringify(userData)
-      })
+        body: JSON.stringify(payload)
+      });
 
       if (response.status === 201) {
-        toast.success("用户创建成功")
-        return true
-      } else {
-        const errorData = await response.json()
-        throw new Error(errorData.message || "创建用户失败")
+        toast.success("用户创建成功");
+        return true;
       }
-    } catch (error: any) {
-      console.error("创建用户错误:", error)
-      toast.error(error.message || "创建用户失败")
-      return false
-    }
-  }
 
-  // 更新用户
+      // 改进错误处理
+      let errorData;
+      try {
+        errorData = await response.json();
+      } catch {
+        errorData = { message: `${response.status} ${response.statusText}` };
+      }
+
+      throw new Error(errorData.message || "创建用户失败");
+
+    } catch (error: any) {
+      console.error("创建用户错误:", error);
+      toast.error(error.message || "创建用户失败");
+      return false;
+    }
+  };
+
+  // 更新用户基本信息
   const updateUser = async (userId: number, userData: any) => {
     try {
-      const response = await fetch(`http://localhost:8080/api/admin/users/${userId}`, {
+      const token = getAccessToken();
+      if (!token) {
+        toast.error("未找到访问令牌");
+        return { success: false };
+      }
+
+      // 准备发送给后端的数据
+      const payload = {
+        userName: userData.userName,
+        realName: userData.realName,
+        email: userData.email,
+        phone: userData.phone
+      };
+
+      const response = await fetch(`http://localhost:8080/api/v1/auth/admin/users/${userId}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${getAccessToken()}`
+          "Authorization": `Bearer ${token}`
         },
-        body: JSON.stringify(userData)
-      })
+        body: JSON.stringify(payload)
+      });
 
-      if (response.status === 204) {
-        toast.success("用户更新成功")
-        return true
-      } else {
-        const errorData = await response.json()
-        throw new Error(errorData.message || "更新用户失败")
+      // 处理成功响应
+      if (response.status === 200 || response.status === 204) {
+        return { success: true };
       }
-    } catch (error: any) {
-      console.error("更新用户错误:", error)
-      toast.error(error.message || "更新用户失败")
-      return false
-    }
-  }
 
-  // 删除用户
+      // 处理错误响应
+      let errorMessage = `更新失败: ${response.status} ${response.statusText}`;
+      try {
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const errorData = await response.json();
+          errorMessage = errorData.message || errorMessage;
+        }
+      } catch (e) {
+        console.warn("解析错误响应失败", e);
+      }
+
+      throw new Error(errorMessage);
+
+    } catch (error: any) {
+      console.error("更新用户错误:", error);
+      toast.error(error.message || "更新用户失败");
+      return { success: false };
+    }
+  };
+
+  // 更新用户角色（新增方法）
+  const updateUserRoles = async (userId: number, roleIds: number[]) => {
+    try {
+      const token = getAccessToken();
+      if (!token) {
+        toast.error("未找到访问令牌");
+        return false;
+      }
+
+      const response = await fetch(`http://localhost:8080/api/v1/auth/admin/users/${userId}/roles`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
+        body: JSON.stringify({ roleIds })
+      });
+
+      if (response.status === 200 || response.status === 204) {
+        return true;
+      }
+
+      // 处理错误响应
+      let errorMessage = `更新角色失败: ${response.status} ${response.statusText}`;
+      try {
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const errorData = await response.json();
+          errorMessage = errorData.message || errorMessage;
+        }
+      } catch (e) {
+        console.warn("解析错误响应失败", e);
+      }
+
+      throw new Error(errorMessage);
+
+    } catch (error: any) {
+      console.error("更新用户角色错误:", error);
+      toast.error(error.message || "更新用户角色失败");
+      return false;
+    }
+  };
+
   const deleteUser = async (userId: number) => {
     try {
-      const response = await fetch(`http://localhost:8080/api/admin/${userId}`, {
+      const token = getAccessToken();
+      if (!token) {
+        toast.error("未找到访问令牌");
+        return false;
+      }
+
+      const response = await fetch(`http://localhost:8080/api/v1/auth/admin/users/${userId}`, {
         method: "DELETE",
         headers: {
-          "Authorization": `Bearer ${getAccessToken()}`
+          "Authorization": `Bearer ${token}`
         }
-      })
+      });
 
-      if (response.status === 200) {
-        toast.success("用户删除成功")
-        return true
-      } else {
-        const errorData = await response.json()
-        throw new Error(errorData.message || "删除用户失败")
+      // 正确处理 204 No Content 响应
+      if (response.status === 200 || response.status === 204) {
+        toast.success("用户删除成功");
+        return true;
       }
-    } catch (error: any) {
-      console.error("删除用户错误:", error)
-      toast.error(error.message || "删除用户失败")
-      return false
-    }
-  }
 
-  // 切换用户状态
-  const toggleUserStatus = async (userId: number, currentStatus: number) => {
-    const newStatus = currentStatus === 1 ? 0 : 1
-
-    try {
-      const response = await fetch(`http://localhost:8080/api/admin/${userId}/status`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${getAccessToken()}`
-        },
-        body: JSON.stringify({ status: newStatus })
-      })
-
-      if (response.status === 200) {
-        toast.success("用户状态更新成功")
-        return true
-      } else {
-        const errorData = await response.json()
-        throw new Error(errorData.message || "更新用户状态失败")
-      }
-    } catch (error: any) {
-      console.error("更新用户状态错误:", error)
-      toast.error(error.message || "更新用户状态失败")
-      return false
-    }
-  }
-
-  // 导出用户数据
-  const exportUsers = async () => {
-    try {
-      const response = await fetch("http://localhost:8080/api/admin/export", {
-        headers: {
-          "Authorization": `Bearer ${getAccessToken()}`
+      // 处理错误响应
+      let errorMessage = `删除失败: ${response.status} ${response.statusText}`;
+      try {
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const errorData = await response.json();
+          errorMessage = errorData.message || errorMessage;
         }
-      })
-
-      if (!response.ok) {
-        throw new Error("导出用户数据失败")
+      } catch (e) {
+        console.warn("解析错误响应失败", e);
       }
 
-      const blob = await response.blob()
-      const url = window.URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = `users_${new Date().toISOString().split("T")[0]}.xlsx`
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
+      throw new Error(errorMessage);
 
-      toast.success("用户数据导出成功")
-    } catch (error) {
-      console.error("导出用户数据错误:", error)
-      toast.error("导出用户数据失败")
+    } catch (error: any) {
+      console.error("删除用户错误:", error);
+      toast.error(error.message || "删除用户失败");
+      return false;
     }
-  }
+  };
 
   useEffect(() => {
     const init = async () => {
@@ -290,9 +442,9 @@ export default function UserManagementPage() {
     if (searchTerm) {
       filtered = filtered.filter(
           (user) =>
-              user.realName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-              user.userName.toLowerCase().includes(searchTerm.toLowerCase())
+              (user.realName?.toLowerCase().includes(searchTerm.toLowerCase()) || "") ||
+              (user.email?.toLowerCase().includes(searchTerm.toLowerCase()) || "") ||
+              (user.userName?.toLowerCase().includes(searchTerm.toLowerCase()) || "")
       )
     }
 
@@ -306,18 +458,12 @@ export default function UserManagementPage() {
       const roleId = roleMap[roleFilter]
       if (roleId) {
         filtered = filtered.filter((user) =>
-            user.roleIds.includes(roleId)
-        )
+            user.roleIds?.includes(roleId))
       }
     }
 
-    if (statusFilter !== "all") {
-      const statusValue = statusFilter === "ACTIVE" ? 1 : 0
-      filtered = filtered.filter((user) => user.status === statusValue)
-    }
-
     setFilteredUsers(filtered)
-  }, [users, searchTerm, roleFilter, statusFilter])
+  }, [users, searchTerm, roleFilter])
 
   const getRoleLabel = (roleId: number) => {
     const labels: Record<number, string> = {
@@ -326,14 +472,6 @@ export default function UserManagementPage() {
       3: "学生"
     }
     return labels[roleId] || `角色${roleId}`
-  }
-
-  const getStatusLabel = (status: number) => {
-    return status === 1 ? "活跃" : "非活跃"
-  }
-
-  const getStatusColor = (status: number) => {
-    return status === 1 ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"
   }
 
   const getRoleColor = (roleId: number) => {
@@ -345,7 +483,42 @@ export default function UserManagementPage() {
     return colors[roleId] || "bg-gray-100 text-gray-800"
   }
 
+  // 验证邮箱格式
+  const validateEmail = (email: string) => {
+    const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!regex.test(email)) {
+      setEmailError("请输入有效的邮箱地址");
+      return false;
+    } else {
+      setEmailError("");
+      return true;
+    }
+  }
+
+  // 验证电话号码格式
+  const validatePhone = (phone: string) => {
+    if (phone && !/^1[3-9]\d{9}$/.test(phone)) {
+      setPhoneError("请输入有效的手机号码");
+      return false;
+    } else {
+      setPhoneError("");
+      return true;
+    }
+  }
+
   const handleCreateUser = async () => {
+    // 表单验证
+    if (!newUser.userName || !newUser.realName || !newUser.email) {
+      toast.error("请填写必填字段：用户名、真实姓名和邮箱");
+      return;
+    }
+
+    // 邮箱格式验证
+    if (!validateEmail(newUser.email)) return;
+
+    // 手机号格式验证（可选）
+    if (newUser.phone && !validatePhone(newUser.phone)) return;
+
     const success = await createUser(newUser)
     if (success) {
       const updatedUsers = await fetchUsers()
@@ -357,44 +530,83 @@ export default function UserManagementPage() {
         email: "",
         phone: "",
         password: "Test@123",
-        roleIds: [2],
-        status: 1
+        roleIds: [2]
       })
     }
   }
 
-  const handleUpdateUser = async () => {
-    if (!selectedUser) return
-
-    const userData = {
-      userName: selectedUser.userName,
-      realName: selectedUser.realName,
-      email: selectedUser.email,
-      phone: selectedUser.phone || "",
-      status: selectedUser.status
-    }
-
-    const success = await updateUser(selectedUser.id, userData)
-    if (success) {
-      const updatedUsers = await fetchUsers()
-      setUsers(updatedUsers)
-      setSelectedUser(null)
+  const handleEditUser = async (userId: number) => {
+    const userDetail = await fetchUserDetail(userId)
+    if (userDetail) {
+      setSelectedUser(userDetail)
     }
   }
+
+  const handleUpdateUser = async () => {
+    if (!selectedUser) return;
+
+    // 表单验证
+    if (!selectedUser.userName || !selectedUser.realName || !selectedUser.email) {
+      toast.error("请填写必填字段：用户名、真实姓名和邮箱");
+      return;
+    }
+
+    // 邮箱格式验证
+    if (!validateEmail(selectedUser.email)) return;
+
+    // 手机号格式验证（可选）
+    if (selectedUser.phone && !validatePhone(selectedUser.phone)) return;
+
+    setSaving(true);
+
+    try {
+      // 1. 更新用户基本信息
+      const basicResult = await updateUser(selectedUser.id, {
+        userName: selectedUser.userName,
+        realName: selectedUser.realName,
+        email: selectedUser.email,
+        phone: selectedUser.phone || ""
+      });
+
+      if (!basicResult.success) {
+        throw new Error("更新用户基本信息失败");
+      }
+
+      // 2. 更新用户角色（使用新添加的API）
+      const roleResult = await updateUserRoles(selectedUser.id, selectedUser.roleIds);
+
+      if (!roleResult) {
+        throw new Error("更新用户角色失败");
+      }
+
+      // 显示成功提示
+      toast.success("用户信息更新成功");
+
+      // 刷新用户列表
+      const updatedUsers = await fetchUsers();
+      setUsers(updatedUsers);
+
+      // 关闭编辑弹窗
+      setSelectedUser(null);
+
+      // 刷新页面数据
+      window.location.reload();
+    } catch (error) {
+      console.error("保存失败:", error);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleDeleteUser = async (userId: number) => {
     const success = await deleteUser(userId)
     if (success) {
       const updatedUsers = await fetchUsers()
       setUsers(updatedUsers)
-    }
-  }
-
-  const handleUserStatusToggle = async (userId: number, currentStatus: number) => {
-    const success = await toggleUserStatus(userId, currentStatus)
-    if (success) {
-      const updatedUsers = await fetchUsers()
-      setUsers(updatedUsers)
+      setUserToDelete(null)
+      setDeleteConfirmOpen(false)
+      // 刷新页面数据
+      window.location.reload();
     }
   }
 
@@ -405,10 +617,18 @@ export default function UserManagementPage() {
     }))
   }
 
+  const handleDeleteConfirmation = (userId: number) => {
+    setUserToDelete(userId)
+    setDeleteConfirmOpen(true)
+  }
+
   if (isLoading) {
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50">
-          <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+        <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50">
+          <div className="flex items-center space-x-4">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+            <p className="text-gray-600">加载用户数据中...</p>
+          </div>
         </div>
     )
   }
@@ -417,11 +637,9 @@ export default function UserManagementPage() {
     return <div>未授权访问，正在重定向...</div>
   }
 
-  // 计算统计数据
-  const totalUsers = users.length
-  const activeUsers = users.filter(u => u.status === 1).length
-  const teachers = users.filter(u => u.roleIds.includes(2)).length
-  const students = users.filter(u => u.roleIds.includes(3)).length
+  const totalUsers = users.length;
+  const teachers = users.filter(u => u.roleIds?.includes(2)).length;
+  const students = users.filter(u => u.roleIds?.includes(3)).length;
 
   return (
       <div className="min-h-screen bg-gray-50">
@@ -432,14 +650,6 @@ export default function UserManagementPage() {
               <p className="text-gray-600">管理系统中的所有用户账户</p>
             </div>
             <div className="flex space-x-3">
-              <Button variant="outline">
-                <Upload className="w-4 h-4 mr-2" />
-                批量导入
-              </Button>
-              <Button variant="outline" onClick={exportUsers}>
-                <Download className="w-4 h-4 mr-2" />
-                导出用户
-              </Button>
               <Button onClick={() => setShowUserDialog(true)}>
                 <Plus className="w-4 h-4 mr-2" />
                 添加用户
@@ -448,7 +658,7 @@ export default function UserManagementPage() {
           </div>
 
           {/* 统计卡片 */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
             <Card>
               <CardContent className="p-6">
                 <div className="flex items-center">
@@ -456,18 +666,6 @@ export default function UserManagementPage() {
                   <div className="ml-4">
                     <p className="text-sm font-medium text-gray-600">总用户数</p>
                     <p className="text-2xl font-bold text-gray-900">{totalUsers}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center">
-                  <UserCheck className="w-8 h-8 text-green-600" />
-                  <div className="ml-4">
-                    <p className="text-sm font-medium text-gray-600">活跃用户</p>
-                    <p className="text-2xl font-bold text-gray-900">{activeUsers}</p>
                   </div>
                 </div>
               </CardContent>
@@ -488,7 +686,7 @@ export default function UserManagementPage() {
             <Card>
               <CardContent className="p-6">
                 <div className="flex items-center">
-                  <Activity className="w-8 h-8 text-orange-600" />
+                  <Users className="w-8 h-8 text-orange-600" />
                   <div className="ml-4">
                     <p className="text-sm font-medium text-gray-600">学生数量</p>
                     <p className="text-2xl font-bold text-gray-900">{students}</p>
@@ -508,9 +706,9 @@ export default function UserManagementPage() {
               {/* 筛选器 */}
               <Card className="mb-6">
                 <CardContent className="pt-6">
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div className="relative">
-                      <Search className="w-4 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                      <Search className="w-6 h-4 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
                       <Input
                           placeholder="搜索用户..."
                           value={searchTerm}
@@ -531,21 +729,10 @@ export default function UserManagementPage() {
                       </SelectContent>
                     </Select>
 
-                    <Select value={statusFilter} onValueChange={setStatusFilter}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="用户状态" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">全部状态</SelectItem>
-                        <SelectItem value="ACTIVE">活跃</SelectItem>
-                        <SelectItem value="INACTIVE">非活跃</SelectItem>
-                      </SelectContent>
-                    </Select>
-
-                    <Button variant="outline">
-                      <Search className="w-4 h-4 mr-2" />
-                      高级搜索
-                    </Button>
+                    {/*<Button variant="outline">*/}
+                    {/*  <Search className="w-4 h-4 mr-2" />*/}
+                    {/*  高级搜索*/}
+                    {/*</Button>*/}
                   </div>
                 </CardContent>
               </Card>
@@ -562,205 +749,215 @@ export default function UserManagementPage() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>用户</TableHead>
-                          <TableHead>用户名</TableHead>
+                          <TableHead>电话</TableHead>
                           <TableHead>角色</TableHead>
-                          <TableHead>状态</TableHead>
                           <TableHead>操作</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {filteredUsers.map((user) => (
-                            <TableRow key={user.id}>
-                              <TableCell>
-                                <div className="flex items-center space-x-3">
-                                  <Avatar className="w-10 h-10">
-                                    <AvatarImage src="/placeholder.svg" alt={user.realName} />
-                                    <AvatarFallback>{user.realName.charAt(0)}</AvatarFallback>
-                                  </Avatar>
-                                  <div>
-                                    <p className="font-medium">{user.realName}</p>
-                                    <p className="text-sm text-gray-500">{user.email}</p>
-                                  </div>
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <p className="text-sm">{user.userName}</p>
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex flex-wrap gap-1">
-                                  {user.roleIds.map((roleId, index) => (
-                                      <Badge key={index} className={getRoleColor(roleId)}>
-                                        {getRoleLabel(roleId)}
-                                      </Badge>
-                                  ))}
-                                </div>
-                              </TableCell>
-                              <TableCell>
-                                <Badge className={getStatusColor(user.status)}>
-                                  {getStatusLabel(user.status)}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex items-center space-x-2">
-                                  <Dialog>
-                                    <DialogTrigger asChild>
-                                      <Button
-                                          variant="ghost"
-                                          size="sm"
-                                          onClick={() => setSelectedUser(user)}
-                                      >
-                                        <Edit className="w-4 h-4" />
-                                      </Button>
-                                    </DialogTrigger>
-                                    <DialogContent className="max-w-2xl">
-                                      <DialogHeader>
-                                        <DialogTitle>用户详情</DialogTitle>
-                                        <DialogDescription>查看和编辑用户信息</DialogDescription>
-                                      </DialogHeader>
-                                      {selectedUser && (
-                                          <div className="space-y-6">
-                                            <div className="flex items-center space-x-4">
-                                              <Avatar className="w-16 h-16">
-                                                <AvatarImage
-                                                    src="/placeholder.svg"
-                                                    alt={selectedUser.realName}
-                                                />
-                                                <AvatarFallback className="text-lg">
-                                                  {selectedUser.realName.charAt(0)}
-                                                </AvatarFallback>
-                                              </Avatar>
-                                              <div>
-                                                <h3 className="text-lg font-semibold">{selectedUser.realName}</h3>
-                                                <p className="text-gray-600">{selectedUser.email}</p>
-                                              </div>
-                                            </div>
-
-                                            <div className="grid grid-cols-2 gap-4">
-                                              <div>
-                                                <Label>用户名</Label>
-                                                <Input
-                                                    value={selectedUser.userName}
-                                                    onChange={(e) => setSelectedUser({
-                                                      ...selectedUser,
-                                                      userName: e.target.value
-                                                    })}
-                                                />
-                                              </div>
-                                              <div>
-                                                <Label>真实姓名</Label>
-                                                <Input
-                                                    value={selectedUser.realName}
-                                                    onChange={(e) => setSelectedUser({
-                                                      ...selectedUser,
-                                                      realName: e.target.value
-                                                    })}
-                                                />
-                                              </div>
-                                            </div>
-
-                                            <div className="grid grid-cols-2 gap-4">
-                                              <div>
-                                                <Label>邮箱</Label>
-                                                <Input
-                                                    value={selectedUser.email}
-                                                    onChange={(e) => setSelectedUser({
-                                                      ...selectedUser,
-                                                      email: e.target.value
-                                                    })}
-                                                />
-                                              </div>
-                                              <div>
-                                                <Label>电话</Label>
-                                                <Input
-                                                    value={selectedUser.phone || ""}
-                                                    onChange={(e) => setSelectedUser({
-                                                      ...selectedUser,
-                                                      phone: e.target.value
-                                                    })}
-                                                />
-                                              </div>
-                                            </div>
-
-                                            <div className="grid grid-cols-2 gap-4">
-                                              <div>
-                                                <Label>角色</Label>
-                                                <Select
-                                                    value={selectedUser.roleIds[0]?.toString() || ""}
-                                                    onValueChange={(value) => setSelectedUser({
-                                                      ...selectedUser,
-                                                      roleIds: [parseInt(value)]
-                                                    })}
-                                                >
-                                                  <SelectTrigger>
-                                                    <SelectValue placeholder="选择角色" />
-                                                  </SelectTrigger>
-                                                  <SelectContent>
-                                                    <SelectItem value="1">管理员</SelectItem>
-                                                    <SelectItem value="2">教师</SelectItem>
-                                                    <SelectItem value="3">学生</SelectItem>
-                                                  </SelectContent>
-                                                </Select>
-                                              </div>
-                                              <div>
-                                                <Label>状态</Label>
-                                                <Select
-                                                    value={selectedUser.status.toString()}
-                                                    onValueChange={(value) => setSelectedUser({
-                                                      ...selectedUser,
-                                                      status: parseInt(value)
-                                                    })}
-                                                >
-                                                  <SelectTrigger>
-                                                    <SelectValue placeholder="选择状态" />
-                                                  </SelectTrigger>
-                                                  <SelectContent>
-                                                    <SelectItem value="1">活跃</SelectItem>
-                                                    <SelectItem value="0">非活跃</SelectItem>
-                                                  </SelectContent>
-                                                </Select>
-                                              </div>
-                                            </div>
-
-                                            <div className="flex justify-end space-x-2">
-                                              <Button
-                                                  variant="outline"
-                                                  onClick={() => setSelectedUser(null)}
-                                              >
-                                                取消
-                                              </Button>
-                                              <Button onClick={handleUpdateUser}>
-                                                保存更改
-                                              </Button>
-                                            </div>
-                                          </div>
-                                      )}
-                                    </DialogContent>
-                                  </Dialog>
-
+                        {filteredUsers.length === 0 ? (
+                            <TableRow>
+                              <TableCell colSpan={4} className="text-center py-12">
+                                <div className="flex flex-col items-center">
+                                  <Users className="w-12 h-12 text-gray-400 mb-2" />
+                                  <p className="text-gray-500">未找到匹配的用户</p>
                                   <Button
                                       variant="ghost"
-                                      size="sm"
-                                      onClick={() => handleUserStatusToggle(user.id, user.status)}
+                                      className="mt-2"
+                                      onClick={() => {
+                                        setSearchTerm("");
+                                        setRoleFilter("all");
+                                      }}
                                   >
-                                    {user.status === 1 ? (
-                                        <UserX className="w-4 h-4 text-red-600" />
-                                    ) : (
-                                        <UserCheck className="w-4 h-4 text-green-600" />
-                                    )}
-                                  </Button>
-
-                                  <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={() => handleDeleteUser(user.id)}
-                                      className="text-red-600 hover:text-red-700"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
+                                    重置筛选条件
                                   </Button>
                                 </div>
                               </TableCell>
                             </TableRow>
-                        ))}
+                        ) : (
+                            filteredUsers.map((user) => (
+                                <TableRow key={user.id}>
+                                  <TableCell>
+                                    <div className="flex items-center space-x-3">
+                                      <Avatar className="w-10 h-10">
+                                        <AvatarImage src="/placeholder.svg" alt={user.realName} />
+                                        <AvatarFallback>
+                                          {user.realName?.charAt(0) || "U"}
+                                        </AvatarFallback>
+                                      </Avatar>
+                                      <div>
+                                        <p className="font-medium">{user.realName || "未命名用户"}</p>
+                                        <p className="text-sm text-gray-500">{user.email || "无邮箱"}</p>
+                                      </div>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    <p className="text-sm">{user.phone || "无电话"}</p>
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="flex flex-wrap gap-1">
+                                      {(user.roleIds || []).map((roleId, index) => (
+                                          <Badge key={index} className={getRoleColor(roleId)}>
+                                            {getRoleLabel(roleId)}
+                                          </Badge>
+                                      ))}
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="flex items-center space-x-2">
+                                      <Dialog>
+                                        <DialogTrigger asChild>
+                                          <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              onClick={() => handleEditUser(user.id)}
+                                          >
+                                            <Edit className="w-4 h-4" />
+                                          </Button>
+                                        </DialogTrigger>
+                                        {/*编辑弹窗*/}
+                                        <DialogContent className="max-w-2xl">
+                                          <DialogHeader>
+                                            <DialogTitle>用户详情</DialogTitle>
+                                            <DialogDescription>查看和编辑用户信息</DialogDescription>
+                                          </DialogHeader>
+                                          {selectedUser && (
+                                              <div className="space-y-6">
+                                                <div className="flex items-center space-x-4">
+                                                  <Avatar className="w-16 h-16">
+                                                    <AvatarImage
+                                                        src="/placeholder.svg"
+                                                        alt={selectedUser.realName}
+                                                    />
+                                                    <AvatarFallback className="text-lg">
+                                                      {selectedUser.realName?.charAt(0) || "U"}
+                                                    </AvatarFallback>
+                                                  </Avatar>
+                                                  <div>
+                                                    <h3 className="text-lg font-semibold">{selectedUser.realName}</h3>
+                                                    <p className="text-gray-600">{selectedUser.email}</p>
+                                                  </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-2 gap-4">
+                                                  <div>
+                                                    <Label>用户名 *</Label>
+                                                    <Input
+                                                        value={selectedUser.userName}
+                                                        onChange={(e) => setSelectedUser({
+                                                          ...selectedUser,
+                                                          userName: e.target.value
+                                                        })}
+                                                        disabled={saving}
+                                                    />
+                                                  </div>
+                                                  <div>
+                                                    <Label>真实姓名 *</Label>
+                                                    <Input
+                                                        value={selectedUser.realName}
+                                                        onChange={(e) => setSelectedUser({
+                                                          ...selectedUser,
+                                                          realName: e.target.value
+                                                        })}
+                                                        disabled={saving}
+                                                    />
+                                                  </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-2 gap-4">
+                                                  <div>
+                                                    <Label>邮箱 *</Label>
+                                                    <Input
+                                                        value={selectedUser.email}
+                                                        onChange={(e) => {
+                                                          setSelectedUser({
+                                                            ...selectedUser,
+                                                            email: e.target.value
+                                                          })
+                                                          validateEmail(e.target.value)
+                                                        }}
+                                                        disabled={saving}
+                                                    />
+                                                    {emailError && <p className="text-red-500 text-xs mt-1">{emailError}</p>}
+                                                  </div>
+                                                  <div>
+                                                    <Label>电话</Label>
+                                                    <Input
+                                                        value={selectedUser.phone || ""}
+                                                        onChange={(e) => {
+                                                          setSelectedUser({
+                                                            ...selectedUser,
+                                                            phone: e.target.value
+                                                          })
+                                                          validatePhone(e.target.value)
+                                                        }}
+                                                        disabled={saving}
+                                                    />
+                                                    {phoneError && <p className="text-red-500 text-xs mt-1">{phoneError}</p>}
+                                                  </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-2 gap-4">
+                                                  <div>
+                                                    <Label>角色</Label>
+                                                    <Select
+                                                        value={selectedUser.roleIds[0]?.toString() || "2"}
+                                                        onValueChange={(value) => setSelectedUser({
+                                                          ...selectedUser,
+                                                          roleIds: [parseInt(value)]
+                                                        })}
+                                                        disabled={saving}
+                                                    >
+                                                      <SelectTrigger>
+                                                        <SelectValue placeholder="选择角色" />
+                                                      </SelectTrigger>
+                                                      <SelectContent>
+                                                        <SelectItem value="1">管理员</SelectItem>
+                                                        <SelectItem value="2">教师</SelectItem>
+                                                        <SelectItem value="3">学生</SelectItem>
+                                                      </SelectContent>
+                                                    </Select>
+                                                  </div>
+                                                </div>
+
+                                                <div className="flex justify-end space-x-2">
+                                                  <Button
+                                                      variant="outline"
+                                                      onClick={() => setSelectedUser(null)}
+                                                      disabled={saving}
+                                                  >
+                                                    取消
+                                                  </Button>
+                                                  <Button
+                                                      onClick={handleUpdateUser}
+                                                      disabled={saving || !!emailError || !!phoneError}
+                                                  >
+                                                    {saving ? (
+                                                        <>
+                                                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                          保存中...
+                                                        </>
+                                                    ) : "保存更改"}
+                                                  </Button>
+                                                </div>
+                                              </div>
+                                          )}
+                                        </DialogContent>
+                                      </Dialog>
+
+                                      {/*<Button*/}
+                                      {/*    variant="ghost"*/}
+                                      {/*    size="sm"*/}
+                                      {/*    onClick={() => handleDeleteConfirmation(user.id)}*/}
+                                      {/*    className="text-red-600 hover:text-red-700"*/}
+                                      {/*>*/}
+                                      {/*  <Trash2 className="w-4 h-4" />*/}
+                                      {/*</Button>*/}
+                                    </div>
+                                  </TableCell>
+                                </TableRow>
+                            ))
+                        )}
                       </TableBody>
                     </Table>
                   </div>
@@ -769,68 +966,30 @@ export default function UserManagementPage() {
             </TabsContent>
 
             <TabsContent value="analytics">
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>用户角色分布</CardTitle>
-                    <CardDescription>各角色用户数量统计</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      {roleDistribution.map((item) => (
-                          <div key={item.role} className="flex items-center justify-between">
-                            <span className="font-medium">{item.role}</span>
-                            <div className="flex items-center space-x-2">
-                              <div className="w-24 bg-gray-200 rounded-full h-2">
-                                <div
-                                    className="h-2 rounded-full bg-blue-600"
-                                    style={{ width: `${item.percentage}%` }}
-                                />
-                              </div>
-                              <span className="text-sm font-semibold w-12">{item.count}</span>
+              <Card>
+                <CardHeader>
+                  <CardTitle>用户角色分布</CardTitle>
+                  <CardDescription>各角色用户数量统计</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {roleDistribution.map((item) => (
+                        <div key={item.role} className="flex items-center justify-between">
+                          <span className="font-medium">{item.role}</span>
+                          <div className="flex items-center space-x-2">
+                            <div className="w-24 bg-gray-200 rounded-full h-2">
+                              <div
+                                  className="h-2 rounded-full bg-blue-600"
+                                  style={{ width: `${item.percentage}%` }}
+                              />
                             </div>
+                            <span className="text-sm font-semibold w-12">{item.count}</span>
                           </div>
-                      ))}
-                    </div>
-                  </CardContent>
-                </Card>
-
-                {/* 用户活跃度统计（后端未提供） */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>用户状态分布</CardTitle>
-                    <CardDescription>用户活跃状态统计</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">活跃用户</span>
-                        <div className="flex items-center space-x-2">
-                          <div className="w-24 bg-gray-200 rounded-full h-2">
-                            <div
-                                className="h-2 rounded-full bg-green-600"
-                                style={{ width: `${(activeUsers / totalUsers) * 100}%` }}
-                            />
-                          </div>
-                          <span className="text-sm font-semibold w-12">{activeUsers}</span>
                         </div>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium">非活跃用户</span>
-                        <div className="flex items-center space-x-2">
-                          <div className="w-24 bg-gray-200 rounded-full h-2">
-                            <div
-                                className="h-2 rounded-full bg-gray-600"
-                                style={{ width: `${((totalUsers - activeUsers) / totalUsers) * 100}%` }}
-                            />
-                          </div>
-                          <span className="text-sm font-semibold w-12">{totalUsers - activeUsers}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
             </TabsContent>
           </Tabs>
 
@@ -843,7 +1002,7 @@ export default function UserManagementPage() {
               </DialogHeader>
               <div className="space-y-4">
                 <div>
-                  <Label>用户名</Label>
+                  <Label>用户名 *</Label>
                   <Input
                       placeholder="输入用户名"
                       value={newUser.userName}
@@ -851,7 +1010,7 @@ export default function UserManagementPage() {
                   />
                 </div>
                 <div>
-                  <Label>真实姓名</Label>
+                  <Label>真实姓名 *</Label>
                   <Input
                       placeholder="输入真实姓名"
                       value={newUser.realName}
@@ -859,21 +1018,29 @@ export default function UserManagementPage() {
                   />
                 </div>
                 <div>
-                  <Label>邮箱</Label>
+                  <Label>邮箱 *</Label>
                   <Input
                       type="email"
                       placeholder="输入邮箱地址"
                       value={newUser.email}
-                      onChange={(e) => handleNewUserChange("email", e.target.value)}
+                      onChange={(e) => {
+                        handleNewUserChange("email", e.target.value)
+                        validateEmail(e.target.value)
+                      }}
                   />
+                  {emailError && <p className="text-red-500 text-xs mt-1">{emailError}</p>}
                 </div>
                 <div>
                   <Label>电话</Label>
                   <Input
                       placeholder="输入电话号码"
                       value={newUser.phone}
-                      onChange={(e) => handleNewUserChange("phone", e.target.value)}
+                      onChange={(e) => {
+                        handleNewUserChange("phone", e.target.value)
+                        validatePhone(e.target.value)
+                      }}
                   />
+                  {phoneError && <p className="text-red-500 text-xs mt-1">{phoneError}</p>}
                 </div>
                 <div>
                   <Label>角色</Label>
@@ -895,8 +1062,11 @@ export default function UserManagementPage() {
                   <Label>初始密码</Label>
                   <Input
                       value={newUser.password}
-                      disabled
+                      onChange={(e) => handleNewUserChange("password", e.target.value)}
                   />
+                  <p className="text-xs text-gray-500 mt-1">
+                    至少8个字符，包含大小写字母、数字和特殊字符
+                  </p>
                 </div>
                 <div className="flex justify-end space-x-2">
                   <Button
@@ -905,11 +1075,41 @@ export default function UserManagementPage() {
                   >
                     取消
                   </Button>
-                  <Button onClick={handleCreateUser}>
+                  <Button
+                      onClick={handleCreateUser}
+                      disabled={!!emailError || !!phoneError}
+                  >
                     创建用户
                   </Button>
                 </div>
               </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* 删除确认对话框 */}
+          <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>确认删除用户</DialogTitle>
+                <DialogDescription>
+                  此操作将永久删除该用户账户，且无法恢复。您确定要继续吗？
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
+                  取消
+                </Button>
+                <Button
+                    variant="destructive"
+                    onClick={() => {
+                      if (userToDelete !== null) {
+                        handleDeleteUser(userToDelete)
+                      }
+                    }}
+                >
+                  确认删除
+                </Button>
+              </DialogFooter>
             </DialogContent>
           </Dialog>
         </div>

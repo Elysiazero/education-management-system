@@ -671,14 +671,16 @@ export default function ResourcesPage() {
                               </div>
                             </div>
                             <div className="mt-4 flex justify-between items-center">
-                              <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleDelete(resource.fileName, resource.userName)}
-                              >
-                                <X className="w-4 h-4 mr-2" />
-                                删除
-                              </Button>
+                              {user?.role !== 'student' && (
+                                  <Button
+                                      size="sm"
+                                      variant="outline"
+                                      onClick={() => handleDelete(resource.fileName, resource.userName)}
+                                  >
+                                    <X className="w-4 h-4 mr-2" />
+                                    删除
+                                  </Button>
+                              )}
                               <Button
                                   size="sm"
                                   onClick={() => triggerDownload(resource.fileName)}
@@ -717,10 +719,15 @@ export default function ResourcesPage() {
                                     <ThumbsUp className="w-4 h-4 mr-2" />
                                     收藏
                                   </Button>
-                                  <Button size="sm"  onClick={() =>handleDelete(resource.fileName, resource.userName)}>
-                                    <ThumbsUp className="w-4 h-4 mr-2" />
-                                    删除
-                                  </Button>
+                                  {user?.role !== 'student' && (
+                                      <Button
+                                          size="sm"
+                                          onClick={() => handleDelete(resource.fileName, resource.userName)}
+                                      >
+                                        <X className="w-4 h-4 mr-2" />
+                                        删除
+                                      </Button>
+                                  )}
                                   <Button
                                       size="sm"
                                       onClick={() => triggerDownload(resource.fileName)}
