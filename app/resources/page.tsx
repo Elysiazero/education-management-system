@@ -150,8 +150,8 @@ export default function ResourcesPage() {
               (b.metadata?.size || '0MB').localeCompare(a.metadata?.size || '0MB'))
           .slice(0, 5)
     } else {
-      // 全部资源：显示已审核的
-      filtered = filtered.filter(r => r.approved)
+      // 为你推荐
+      filtered = [...filtered]
     }
 
     // 应用搜索和筛选条件
@@ -320,18 +320,21 @@ export default function ResourcesPage() {
 
 
   const handleDelete = async (fileName: string, userName: string) => {
-
-
     const userData = localStorage.getItem('user')
     if (!userData) {
       alert("用户信息不存在，请重新登录");
       return;
     }
+
     const parsedUser = JSON.parse(userData)
-    console.log('当前用户名:',parsedUser.username)
-    console.log('资源用户名:',userName)
+    console.log('当前用户名:', parsedUser.username)
+    console.log('资源用户名:', userName)
+
     // 检查权限：管理员可以删除所有，教师只能删除自己上传的
-    if (user?.role === 'admin' || (user?.role === 'teacher' && parsedUser.username === userName)) {
+    const isAdmin = user?.role === 'admin';
+    const isOwner = user?.role === 'teacher' && parsedUser.username === userName;
+
+    if (isAdmin || isOwner) {
       if (!confirm(`确定要删除资源 "${fileName}" 吗？`)) return
 
       try {
@@ -344,10 +347,7 @@ export default function ResourcesPage() {
 
         const response = await fetch(
             `${API_BASE_URL}/delete?fileName=${encodeURIComponent(fileName)}`,
-            {
-              method: 'DELETE',
-              headers
-            }
+            { method: 'DELETE', headers }
         )
 
         const result = await response.text()
@@ -363,7 +363,12 @@ export default function ResourcesPage() {
         toast.error('删除失败: ' + (error as Error).message)
       }
     } else {
-      toast.error('您没有权限删除此资源')
+      // 特定提示：教师尝试删除他人资源
+      if (user?.role === 'teacher') {
+        alert('您不是管理员，只能删除自己上传的资源');
+      } else {
+        alert('您没有权限删除此资源');
+      }
     }
   }
 
