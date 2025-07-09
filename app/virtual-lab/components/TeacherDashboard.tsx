@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -14,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import Link from "next/link"
-import { Star, Plus, Send, FileText, AlertCircle, CheckCircle, Download } from "lucide-react"
+import { Star, Plus, Send, FileText, AlertCircle, CheckCircle, Download, X } from "lucide-react"
 
 // =================================================================
 // 1. 类型定义 (Type Definitions)
@@ -38,6 +38,20 @@ interface ClassDTO { id: number; name: string; }
 interface UserInfoDTO { id: number; name: string; }
 interface GradingStats { totalReports: number; submittedReports: number; gradedReports: number; averageGrade: number; }
 interface TeacherDashboardProps { user: UserType; }
+interface ScoringRule {
+  id: number;
+  dimension: string;
+  metric: 'ACTION_COUNT' | 'DATA_ACCURACY';
+  points: number;
+  expected: {
+    actionType?: string;
+    condition?: string;
+    minCount?: number;
+    metricName?: string;
+    targetValue?: number;
+    tolerance?: number;
+  };
+}
 
 // =================================================================
 // 2. API 请求函数 (API Request Functions)
@@ -274,8 +288,8 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
     startTime: "",
     endTime: "",
     requirements: "",
-    scoringRules: JSON.stringify([{ dimension: "操作准确性", metric: "DATA_ACCURACY", points: 50, expected: { metricName: "", targetValue: 0, tolerance: 0 } }], null, 2)
   });
+  const [scoringRules, setScoringRules] = useState<ScoringRule[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [difficultyFilter, setDifficultyFilter] = useState("all");
@@ -294,6 +308,37 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
     },
     enabled: !!teacherTasks && teacherTasks.length > 0,
   });
+
+  // Effect to initialize scoring rules when dialog opens
+  useEffect(() => {
+    if (isPublishing) {
+      // Based on user's example, pre-populate the form.
+      setScoringRules([
+        {
+          id: Date.now() + 1,
+          dimension: "实验完成度",
+          metric: "ACTION_COUNT",
+          points: 70,
+          expected: {
+            actionType: "STEP_COMPLETE",
+            condition: "stepName == '到达滴定终点'",
+            minCount: 1
+          }
+        },
+        {
+          id: Date.now() + 2,
+          dimension: "过程准确性",
+          metric: "ACTION_COUNT",
+          points: 30,
+          expected: {
+            actionType: "STEP_COMPLETE",
+            condition: "stepName == '到达指示剂变色范围'",
+            minCount: 1
+          }
+        }
+      ]);
+    }
+  }, [isPublishing]);
 
   // Memoized Calculations
   const gradingStats = useMemo<GradingStats>(() => {
@@ -361,11 +406,6 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
     }
   };
 
-  /**
-   * @notice 处理带授权请求头的文件下载
-   * @param objectKey 文件的唯一标识 (Object Key)
-   * @param fileName 下载时希望显示的文件名
-   */
   const handleDownload = async (objectKey: string, fileName: string) => {
     if (!objectKey) {
       alert("资源不存在或已失效。");
@@ -408,22 +448,71 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
     if (!currentExperiment || !newAssignment.classId) return alert("请选择实验和班级");
     const studentIds = newAssignment.studentId ? [newAssignment.studentId] : classData?.studentsMap[Number(newAssignment.classId)]?.map(s => s.id.toString()) || [];
     if (studentIds.length === 0) return alert("该班级下没有学生");
-    if (!currentExperiment || !newAssignment.classId)
-      return alert("请选择实验和班级");
+    if (!newAssignment.startTime || !newAssignment.endTime) return alert("请填写开始时间和截止时间");
+    if (scoringRules.length === 0) return alert("请至少添加一条评分规则");
 
-    if (!newAssignment.startTime || !newAssignment.endTime)
-      return alert("请填写开始时间和截止时间");
+    const finalScoringRules = scoringRules.map(rule => {
+      const { id, ...rest } = rule; // Remove temporary id used for React keys
+      return rest;
+    });
 
-    if (!newAssignment.scoringRules.trim())
-      return alert("请填写评分规则");
+    const scoringRulesString = JSON.stringify(finalScoringRules);
 
-    try {
-      JSON.parse(newAssignment.scoringRules);
-    } catch (e) {
-      return alert("评分规则必须是有效的JSON格式");
-    }
-    publishAssignmentMutation.mutate({ ...newAssignment, experimentId: currentExperiment.id, studentIds });
+    publishAssignmentMutation.mutate({
+      ...newAssignment,
+      experimentId: currentExperiment.id,
+      studentIds,
+      scoringRules: scoringRulesString
+    });
   };
+
+  // Scoring Rule Form Handlers
+  const handleRuleChange = (index: number, path: string, value: any) => {
+    setScoringRules(prevRules => {
+      const newRules = [...prevRules];
+      const ruleToUpdate = { ...newRules[index] };
+
+      if (path === 'metric') {
+        ruleToUpdate.metric = value;
+        // Reset 'expected' when metric type changes to maintain correct structure
+        if (value === 'ACTION_COUNT') {
+          ruleToUpdate.expected = { actionType: 'STEP_COMPLETE', condition: '', minCount: 1 };
+        } else if (value === 'DATA_ACCURACY') {
+          ruleToUpdate.expected = { metricName: '', targetValue: 0, tolerance: 0 };
+        }
+      } else if (path.startsWith('expected.')) {
+        const key = path.split('.')[1];
+        ruleToUpdate.expected = { ...ruleToUpdate.expected, [key]: value };
+      } else {
+        (ruleToUpdate as any)[path] = value;
+      }
+
+      newRules[index] = ruleToUpdate;
+      return newRules;
+    });
+  };
+
+  const handleAddRule = () => {
+    setScoringRules(prevRules => [
+      ...prevRules,
+      {
+        id: Date.now(),
+        dimension: '',
+        metric: 'ACTION_COUNT',
+        points: 10,
+        expected: {
+          actionType: 'STEP_COMPLETE',
+          condition: '',
+          minCount: 1,
+        },
+      }
+    ]);
+  };
+
+  const handleRemoveRule = (indexToRemove: number) => {
+    setScoringRules(prevRules => prevRules.filter((_, index) => index !== indexToRemove));
+  };
+
 
   // Render Helpers
   const renderStarRating = (d: number) => <div className="flex">{[...Array(5)].map((_, i) => <Star key={i} className={`w-4 h-4 ${i < d ? "fill-yellow-400 text-yellow-400" : "text-gray-300"}`} />)}</div>;
@@ -497,11 +586,11 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
                       <Button variant="outline" className="w-full" onClick={() => handleDownload(exp.simPackageUrl, exp.fileName)}>
                         <Download className="w-4 h-4 mr-2" /> 下载资源包
                       </Button>
-                      <Dialog open={isPublishing && currentExperiment?.id === exp.id} onOpenChange={(open) => !open && setIsPublishing(false)}>
+                      <Dialog open={isPublishing && currentExperiment?.id === exp.id} onOpenChange={(open) => { if (!open) setIsPublishing(false); }}>
                         <DialogTrigger asChild><Button className="w-full" onClick={() => { setIsPublishing(true); setCurrentExperiment(exp); }}><Send className="w-4 h-4 mr-2" /> 发布任务</Button></DialogTrigger>
-                        <DialogContent>
+                        <DialogContent className="sm:max-w-2xl">
                           <DialogHeader><DialogTitle>发布任务: {exp.title}</DialogTitle></DialogHeader>
-                          <div className="grid gap-4 py-4">
+                          <div className="grid gap-4 py-4 max-h-[70vh] overflow-y-auto pr-6">
                             <div className="grid grid-cols-4 items-center gap-4"><Label className="text-right">任务名称</Label><Input value={newAssignment.taskName} onChange={e => setNewAssignment({ ...newAssignment, taskName: e.target.value })} className="col-span-3" /></div>
                             <div className="grid grid-cols-4 items-center gap-4"><Label className="text-right">选择班级</Label><Select onValueChange={v => setNewAssignment({ ...newAssignment, classId: v, studentId: '' })}><SelectTrigger className="col-span-3"><SelectValue placeholder="选择班级" /></SelectTrigger><SelectContent>{classData?.classes.map(c => <SelectItem key={c.id} value={c.id.toString()}>{c.name}</SelectItem>)}</SelectContent></Select></div>
                             <div className="grid grid-cols-4 items-center gap-4">
@@ -512,10 +601,75 @@ export default function TeacherDashboard({ user }: TeacherDashboardProps) {
                               <Label className="text-right">截止时间 <span className="text-red-500">*</span></Label>
                               <Input type="datetime-local" value={newAssignment.endTime} onChange={e => setNewAssignment({ ...newAssignment, endTime: e.target.value })} className="col-span-3" />
                             </div>
+
+                            {/* --- NEW SCORING RULE FORM --- */}
                             <div className="grid grid-cols-4 items-start gap-4">
                               <Label className="text-right pt-2">评分规则 <span className="text-red-500">*</span></Label>
-                              <Textarea value={newAssignment.scoringRules} onChange={e => setNewAssignment({ ...newAssignment, scoringRules: e.target.value })} className="col-span-3 font-mono text-sm h-40" placeholder={`示例格式...\n`} />
+                              <div className="col-span-3 space-y-4">
+                                {scoringRules.map((rule, index) => (
+                                  <Card key={rule.id} className="p-4 bg-gray-50 relative">
+                                    <Button variant="ghost" size="icon" className="absolute top-1 right-1 h-6 w-6" onClick={() => handleRemoveRule(index)}>
+                                      <X className="h-4 w-4 text-gray-500" />
+                                    </Button>
+                                    <div className="space-y-3">
+                                      <div className="grid grid-cols-3 gap-2 items-center">
+                                        <Label>评分维度</Label>
+                                        <Input className="col-span-2" value={rule.dimension} onChange={(e) => handleRuleChange(index, 'dimension', e.target.value)} />
+                                      </div>
+                                      <div className="grid grid-cols-3 gap-2 items-center">
+                                        <Label>分值</Label>
+                                        <Input type="number" className="col-span-2" value={rule.points} onChange={(e) => handleRuleChange(index, 'points', parseInt(e.target.value) || 0)} />
+                                      </div>
+                                      <div className="grid grid-cols-3 gap-2 items-center">
+                                        <Label>评分指标</Label>
+                                        <Select value={rule.metric} onValueChange={(value) => handleRuleChange(index, 'metric', value)} >
+                                          <SelectTrigger className="col-span-2"><SelectValue /></SelectTrigger>
+                                          <SelectContent>
+                                            <SelectItem value="ACTION_COUNT">动作计数</SelectItem>
+                                            <SelectItem value="DATA_ACCURACY">数据准确性</SelectItem>
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                      {rule.metric === 'ACTION_COUNT' && (
+                                        <>
+                                          <div className="grid grid-cols-3 gap-2 items-center">
+                                            <Label>动作类型</Label>
+                                            <Input className="col-span-2" value={rule.expected.actionType} onChange={(e) => handleRuleChange(index, 'expected.actionType', e.target.value)} />
+                                          </div>
+                                          <div className="grid grid-cols-3 gap-2 items-center">
+                                            <Label>条件</Label>
+                                            <Input className="col-span-2" value={rule.expected.condition} onChange={(e) => handleRuleChange(index, 'expected.condition', e.target.value)} />
+                                          </div>
+                                          <div className="grid grid-cols-3 gap-2 items-center">
+                                            <Label>最小次数</Label>
+                                            <Input type="number" className="col-span-2" value={rule.expected.minCount} onChange={(e) => handleRuleChange(index, 'expected.minCount', parseInt(e.target.value) || 0)} />
+                                          </div>
+                                        </>
+                                      )}
+                                      {rule.metric === 'DATA_ACCURACY' && (
+                                        <>
+                                          <div className="grid grid-cols-3 gap-2 items-center">
+                                            <Label>指标名称</Label>
+                                            <Input className="col-span-2" value={rule.expected.metricName} onChange={(e) => handleRuleChange(index, 'expected.metricName', e.target.value)} />
+                                          </div>
+                                          <div className="grid grid-cols-3 gap-2 items-center">
+                                            <Label>目标值</Label>
+                                            <Input type="number" className="col-span-2" value={rule.expected.targetValue} onChange={(e) => handleRuleChange(index, 'expected.targetValue', parseFloat(e.target.value) || 0)} />
+                                          </div>
+                                          <div className="grid grid-cols-3 gap-2 items-center">
+                                            <Label>容差</Label>
+                                            <Input type="number" className="col-span-2" value={rule.expected.tolerance} onChange={(e) => handleRuleChange(index, 'expected.tolerance', parseFloat(e.target.value) || 0)} />
+                                          </div>
+                                        </>
+                                      )}
+                                    </div>
+                                  </Card>
+                                ))}
+                                <Button variant="outline" size="sm" onClick={handleAddRule}><Plus className="w-4 h-4 mr-2" /> 添加评分项</Button>
+                              </div>
                             </div>
+                            {/* --- END OF SCORING RULE FORM --- */}
+
                             <div className="grid grid-cols-4 items-start gap-4"><Label className="text-right pt-2">任务要求</Label><Textarea value={newAssignment.requirements} onChange={e => setNewAssignment({ ...newAssignment, requirements: e.target.value })} className="col-span-3" /></div>
                           </div>
                           <DialogFooter><Button onClick={handlePublishAssignment} disabled={publishAssignmentMutation.isPending}>{publishAssignmentMutation.isPending ? "发布中..." : "确认发布"}</Button></DialogFooter>

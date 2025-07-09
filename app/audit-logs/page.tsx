@@ -31,9 +31,13 @@ import {
   Eye,
   BookOpen,
   ClipboardList,
-  GraduationCap
+  GraduationCap,
+  Sparkles,
+  FastForward,
+  PlayCircle
 } from "lucide-react"
 import type { DateRange } from "react-day-picker"
+import ReactMarkdown from 'react-markdown';
 
 // --- 接口定义 ---
 interface LogEntry {
@@ -114,7 +118,101 @@ export default function AuditLogsPage() {
   const [totalRecords, setTotalRecords] = useState(0)
   const pageSize = 10
   const router = useRouter();
+  const [aiQuery, setAiQuery] = useState<string>("分析一下最近的5条错误日志，找出根本原因。"); // 默认的示例问题
+  const [aiResult, setAiResult] = useState<string>("");
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [aiError, setAiError] = useState<string | null>(null);
 
+  const handleAnalysis = useCallback(async (isStream: boolean) => {
+    // 检查是否有查询问题或时间范围
+    if (!aiQuery.trim()) {
+      setAiError("请输入您想分析的问题。");
+      return;
+    }
+    if (!dateRange.from || !dateRange.to) {
+      setAiError("请先在筛选器中选择一个时间范围。");
+      return;
+    }
+
+    setIsAnalyzing(true);
+    setAiError(null);
+    setAiResult(""); // 开始分析前清空上次结果
+
+    const token = localStorage.getItem("accessToken");
+    if (!token) {
+      setAiError("认证已过期，请重新登录。");
+      setIsAnalyzing(false);
+      return;
+    }
+
+    // 准备请求体
+    const requestBody = {
+      query: aiQuery,
+      startTime: dateRange.from.toISOString(),
+      endTime: dateRange.to.toISOString(),
+      logType: statusFilter === '1' ? 'ERROR' : 'ALL', // 如果筛选了失败，就只分析错误日志
+      limit: 50, // 限制日志数量，避免请求体过大
+    };
+
+    try {
+      if (isStream) {
+        // --- 处理流式请求 ---
+        const response = await fetch('http://localhost:8080/api/v1/admin/analysis/query-stream', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        if (!response.ok) {
+          throw new Error(`服务连接失败，状态码: ${response.status}`);
+        }
+
+        const reader = response.body?.getReader();
+        if (!reader) {
+          throw new Error("无法获取响应流。");
+        }
+
+        const decoder = new TextDecoder("utf-8");
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          // 注意：在SSE中，数据通常是 "data: xxx\n\n" 的格式
+          // 我们的后端直接返回了文本块，所以直接解码即可
+          const chunk = decoder.decode(value);
+          setAiResult((prev) => prev + chunk);
+        }
+
+      } else {
+        // --- 处理标准请求 ---
+        const response = await fetch('http://localhost:8080/api/v1/admin/analysis/query', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        if (!response.ok) {
+          throw new Error(`网络请求错误，状态码: ${response.status}`);
+        }
+
+        const result = await response.json();
+        if (result.code === 200 && result.data) {
+          setAiResult(result.data.analysisResult);
+        } else {
+          throw new Error(result.message || "AI分析失败。");
+        }
+      }
+    } catch (e: any) {
+      setAiError(e.message);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, [aiQuery, dateRange, statusFilter]); // 依赖项
   // --- 数据获取 ---
   const fetchLogs = useCallback(async () => {
     setIsLoading(true)
@@ -440,19 +538,14 @@ export default function AuditLogsPage() {
                   </ResponsiveContainer>
                 </CardContent>
               </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle>未来展望：日志趋势</CardTitle>
-                  <CardDescription>此功能需后端提供专门的聚合API支持</CardDescription>
-                </CardHeader>
-                <CardContent className="flex items-center justify-center h-[350px]">
-                  <div className="text-center text-gray-500">
-                    <ClipboardList size={48} className="mx-auto" />
-                    <p className="mt-4">全时段的日志趋势图正在规划中。</p>
-                    <p className="text-sm">需要后端开发按时间聚合数据的接口。</p>
-                  </div>
-                </CardContent>
-              </Card>
+              <AiAnalysisCard
+                aiQuery={aiQuery}
+                setAiQuery={setAiQuery}
+                handleAnalysis={handleAnalysis}
+                isAnalyzing={isAnalyzing}
+                aiResult={aiResult}
+                aiError={aiError}
+              />
             </div>
           </TabsContent>
         </Tabs>
@@ -511,6 +604,84 @@ export default function AuditLogsPage() {
           )}
         </DialogContent>
       </Dialog>
-    </div>
+    </div >
   )
 }
+
+
+const AiAnalysisCard = ({
+  aiQuery,
+  setAiQuery,
+  handleAnalysis,
+  isAnalyzing,
+  aiResult,
+  aiError,
+}: {
+  aiQuery: string;
+  setAiQuery: (query: string) => void;
+  handleAnalysis: (isStream: boolean) => void;
+  isAnalyzing: boolean;
+  aiResult: string;
+  aiError: string | null;
+}) => {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center">
+          <Sparkles className="w-6 h-6 mr-2 text-purple-600" /> {/* 替换为你喜欢的图标 */}
+          智能日志分析 (AI)
+        </CardTitle>
+        <CardDescription>
+          使用自然语言提问，AI将根据您选择的时间范围自动分析相关日志。
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* 输入区域 */}
+        <div>
+          <Label htmlFor="ai-query" className="font-semibold">分析请求</Label>
+          <textarea
+            id="ai-query"
+            value={aiQuery}
+            onChange={(e) => setAiQuery(e.target.value)}
+            placeholder="例如：分析最近的错误日志，并给出解决方案。"
+            className="w-full mt-2 p-2 border rounded-md min-h-[80px] text-sm bg-gray-50"
+            disabled={isAnalyzing}
+          />
+        </div>
+
+        {/* 操作按钮 */}
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Button onClick={() => handleAnalysis(false)} disabled={isAnalyzing}>
+            {isAnalyzing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <PlayCircle className="mr-2 h-4 w-4" />} {/* 图标替换 */}
+            获取分析报告
+          </Button>
+        </div>
+
+        {/* 结果显示区域 */}
+        {(isAnalyzing || aiResult || aiError) && (
+          <div className="border-t pt-4">
+            <h4 className="font-semibold mb-2">分析结果</h4>
+            {isAnalyzing && !aiResult && (
+              <div className="flex items-center justify-center h-40 bg-gray-50 rounded-md">
+                <Loader2 className="w-8 h-8 animate-spin text-gray-400" />
+                <p className="ml-3 text-gray-500">正在分析中，请稍候...</p>
+              </div>
+            )}
+            {aiError && (
+              <div className="p-4 bg-red-50 text-red-700 border border-red-200 rounded-md">
+                <AlertTriangle className="w-5 h-5 inline-block mr-2" />
+                <strong>错误：</strong>{aiError}
+              </div>
+            )}
+            {aiResult && (
+              <div className="prose prose-sm max-w-none p-4 bg-gray-50 rounded-md min-h-[100px]">
+                {/* 使用 react-markdown 来渲染结果 */}
+                <ReactMarkdown>{aiResult}</ReactMarkdown>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
