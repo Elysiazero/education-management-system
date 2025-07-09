@@ -143,17 +143,24 @@ export default function ResourcesPage() {
       filtered = [...filtered]
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
           .slice(0, 5)
-          .map(resource => ({
-            ...resource,
-            userName: resource.userName || '未知上传者',
-            createdAt: resource.createdAt || new Date().toISOString()
-          }))
-    } else {
+    }  else {
       // 为你推荐
       filtered = [...filtered]
     }
 
-    // ... rest of the filtering logic
+    // 应用搜索和筛选条件
+    if (searchTerm) {
+      filtered = filtered.filter(resource =>
+          resource.fileName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          resource.description.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    }
+
+    if (typeFilter !== 'all') {
+      filtered = filtered.filter(resource => resource.resourceType === typeFilter)
+    }
+
+    setFilteredResources(filtered)
   }, [resources, searchTerm, typeFilter, activeTab])
 
   const getTypeIcon = (type: string) => {
@@ -771,13 +778,13 @@ export default function ResourcesPage() {
                   </div>
                 </TabsContent>
 
-                <TabsContent value="favorites" className="pt-4">
-                  <div className="bg-gray-100 rounded-lg p-12 text-center">
-                    <Star className="w-12 h-12 text-yellow-400 mx-auto mb-4" />
-                    <h3 className="text-xl font-semibold text-gray-700">暂无收藏资源</h3>
-                    <p className="text-gray-500 mt-2">您可以将喜欢的资源添加到收藏夹</p>
-                  </div>
-                </TabsContent>
+                {/*<TabsContent value="favorites" className="pt-4">*/}
+                {/*  <div className="bg-gray-100 rounded-lg p-12 text-center">*/}
+                {/*    <Star className="w-12 h-12 text-yellow-400 mx-auto mb-4" />*/}
+                {/*    <h3 className="text-xl font-semibold text-gray-700">暂无收藏资源</h3>*/}
+                {/*    <p className="text-gray-500 mt-2">您可以将喜欢的资源添加到收藏夹</p>*/}
+                {/*  </div>*/}
+                {/*</TabsContent>*/}
 
                 {( user.role === 'admin') && (
                     <TabsContent value="pending" className="pt-4">

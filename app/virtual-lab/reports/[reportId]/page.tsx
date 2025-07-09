@@ -283,7 +283,7 @@ const ReportDetailPage: React.FC = () => {
                             <span
                                 className={`font-medium ${report.status === "SUBMITTED" ? "text-blue-600" :
                                     report.status === "GRADED" ? "text-green-600" : "text-gray-600"
-                                    }`}
+                                }`}
                             >
                                 {report.status === "SUBMITTED" ? "已提交" : report.status === "GRADED" ? "已批改" : report.status}
                             </span>
@@ -357,7 +357,7 @@ const ReportDetailPage: React.FC = () => {
 
                             <div>
                                 <p className="font-medium mb-1 text-sm text-gray-600">自动评分</p>
-                                <span className="text-xl font-semibold">{report.autoScore ?? 0} 分</span>
+                                <span className="text-xl font-semibold">{report.grade?.autoScore ?? 0} 分</span>
                             </div>
 
                             {report.grade?.finalScore !== undefined && (

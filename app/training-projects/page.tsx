@@ -753,6 +753,42 @@ export default function TrainingProjectsPage() {
         tasks = await tasksResponse.json();
         console.log("项目任务:", tasks);
         setProjectTasks(tasks);
+
+          // --- Start of new code for assignee names ---
+          const assigneeIdsToFetch = new Set<number>();
+          tasks.forEach((task: ProjectTaskDTO) => {
+            if (task.assigneeType === "USER" && task.assigneeId !== null && !names[task.assigneeId]) {
+              assigneeIdsToFetch.add(task.assigneeId);
+            }
+          });
+
+          if (assigneeIdsToFetch.size > 0) {
+            const fetchedAssigneeNames: Record<number, string> = {};
+            await Promise.all(
+                Array.from(assigneeIdsToFetch).map(async (assigneeId) => {
+                  try {
+                    const userResponse = await fetch(`${USER_API_BASE_URL}/me/${assigneeId}`, {
+                      headers: { Authorization: `Bearer ${token}` }
+                    });
+                    if (userResponse.ok) {
+                      const userData: UserInfoDTO = await userResponse.json();
+                      fetchedAssigneeNames[assigneeId] = userData.realName;
+                    } else {
+                      console.error(`获取任务分配人 ${assigneeId} 详细信息失败: ${userResponse.status}`);
+                      fetchedAssigneeNames[assigneeId] = "未知用户";
+                    }
+                  } catch (err) {
+                    console.error(`获取任务分配人 ${assigneeId} 详细信息失败:`, err);
+                    fetchedAssigneeNames[assigneeId] = "未知用户";
+                  }
+                })
+            );
+            setNames(prevNames => ({ ...prevNames, ...fetchedAssigneeNames }));
+            console.log("任务分配人名称映射:", fetchedAssigneeNames);
+          }
+          // --- End of new code for assignee names ---
+
+         
       }
 
       // 3. 获取项目评论
@@ -1688,6 +1724,41 @@ export default function TrainingProjectsPage() {
         const tasks = await response.json();
         setProjectTasks(tasks);
 
+          // --- Start of new code for assignee names ---
+          const assigneeIdsToFetch = new Set<number>();
+          tasks.forEach((task: ProjectTaskDTO) => {
+            if (task.assigneeType === "USER" && task.assigneeId !== null && !names[task.assigneeId]) {
+              assigneeIdsToFetch.add(task.assigneeId);
+            }
+          });
+
+          if (assigneeIdsToFetch.size > 0) {
+            const fetchedAssigneeNames: Record<number, string> = {};
+            await Promise.all(
+                Array.from(assigneeIdsToFetch).map(async (assigneeId) => {
+                  try {
+                    const userResponse = await fetch(`${USER_API_BASE_URL}/me/${assigneeId}`, {
+                      headers: { Authorization: `Bearer ${token}` }
+                    });
+                    if (userResponse.ok) {
+                      const userData: UserInfoDTO = await userResponse.json();
+                      fetchedAssigneeNames[assigneeId] = userData.realName;
+                    } else {
+                      console.error(`获取任务分配人 ${assigneeId} 详细信息失败: ${userResponse.status}`);
+                      fetchedAssigneeNames[assigneeId] = "未知用户";
+                    }
+                  } catch (err) {
+                    console.error(`获取任务分配人 ${assigneeId} 详细信息失败:`, err);
+                    fetchedAssigneeNames[assigneeId] = "未知用户";
+                  }
+                })
+            );
+            setNames(prevNames => ({ ...prevNames, ...fetchedAssigneeNames }));
+            console.log("任务分配人名称映射:", fetchedAssigneeNames);
+          }
+          // --- End of new code for assignee names ---
+
+        
         // 获取用户团队
         const team = await fetchUserTeam(projectId);
         const isLeader = team ? isTeamLeader(team) : false;
@@ -2166,10 +2237,13 @@ export default function TrainingProjectsPage() {
                             console.log(task);
                             if (task.assigneeType === "USER") {
                               // 根据task的assigneeId来获取用户的realname来展示
+                              console.log(task.assigneeId)
                               const userName = names[task.assigneeId as number] || "未知用户";
+
                               fileName = `${task.title}_${userName}.doc`;
+                              console.log(fileName);
                             } else if (task.assigneeType === "TEAM") {
-                              console.log(task.assigneeId);
+
                               // 根据task的assignedToTeamId来获取团队的name来展示
                               const team = allTeams.find(t => t.id === task.assigneeId);
                               const teamName = team ? team.name : "未知团队";
@@ -2177,6 +2251,7 @@ export default function TrainingProjectsPage() {
                               console.log(fileName);
                             } else {
                               fileName = `${task.title}.doc`;
+                              console.log(fileName);
                             }
 
                             const localFilePath = `D://Downloads/${fileName}`; // Generic path for download
@@ -2434,7 +2509,7 @@ export default function TrainingProjectsPage() {
                   />
                 </div>
                 <div>
-                  <Label htmlFor="submissionAttachments">上传附件</Label>
+                  <Label htmlFor="submissionAttachments">上传附件（命名要求：任务名_团队名（个人名））</Label>
                   <Input
                       id="submissionAttachments"
                       type="file"
