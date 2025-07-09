@@ -283,7 +283,7 @@ const ReportDetailPage: React.FC = () => {
                             <span
                                 className={`font-medium ${report.status === "SUBMITTED" ? "text-blue-600" :
                                     report.status === "GRADED" ? "text-green-600" : "text-gray-600"
-                                    }`}
+                                }`}
                             >
                                 {report.status === "SUBMITTED" ? "已提交" : report.status === "GRADED" ? "已批改" : report.status}
                             </span>
