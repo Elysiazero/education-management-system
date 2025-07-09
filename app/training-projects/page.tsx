@@ -303,7 +303,7 @@ console.log('xuesheng',studentsMap);
 
       // 使用正确的添加成员接口路径
       const response = await fetch(
-          `${API_BASE_URL}/team-members/${team.id}/members/${selectedStudentId}`,
+          `${API_BASE_URL}/teams/${team.id}/members/${selectedStudentId}`,
           {
             method: "POST", // 添加成员是 POST 请求
             headers: {
@@ -338,7 +338,7 @@ console.log('xuesheng',studentsMap);
       setLoading(true);
       const token = localStorage.getItem("accessToken");
       console.log('userid:', userId);
-
+      console.log(team.id)
       // 使用删除成员接口路径
       const response = await fetch(
           `${API_BASE_URL}/team-members/${team.id}/${userId}`, // 直接使用用户ID
@@ -390,22 +390,20 @@ console.log('xuesheng',studentsMap);
                     <div className="flex gap-2">
                       <Button
                           variant="destructive"
-                          size="sm"
+                          size="icon"
                           onClick={handleDeleteTeam}
                           disabled={loading}
                       >
-                        <Trash2 className="w-3 h-3 mr-1" />
-                        删除团队
+                        <Trash2 className="w-3 h-3" />
                       </Button>
 
                       <Button
                           variant="outline"
-                          size="sm"
+                          size="icon"
                           onClick={() => onGradeTeam && onGradeTeam(team)}
                           disabled={team.score !== null || loading}
                       >
-                        <Star className="w-3 h-3 mr-1 text-yellow-500" />
-                        {team.score !== null ? "已评分" : "评分"}
+                        <Star className="w-3 h-3 text-yellow-500" />
                       </Button>
                     </div>
                 )}
