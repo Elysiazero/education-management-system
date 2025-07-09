@@ -80,13 +80,15 @@ interface ProjectDTO {
   endDate: string;
   creatorId: number;
   progress: number;
+  tags?: string[];
 }
 
 interface ProjectDetailDTO extends ProjectDTO {
   tasks: ProjectTaskDTO[];
   teams: ProjectTeamDTO[];
   assignedStudents: UserInfoDTO[];
-  progress: number; // Add progress field
+  progress: number;
+  tags?: string[]; // Add progress field
 }
 
 interface ProjectTaskDTO {
@@ -119,6 +121,7 @@ interface ProjectTeamDTO {
   createdAt: string;
   updatedAt: string;
   progress: number;
+  tags?: string[];
   score: number | null;
   feedback: string | null;
   members: UserInfoDTO[];
@@ -444,6 +447,7 @@ const MyTeamCard = ({ teams, user }: { teams: ProjectTeamDTO[]; user: UserInfoDT
 };
 export default function TrainingProjectsPage() {
   const [names, setNames] = useState<Record<number, string>>({}); // { [userId]: realName }
+  const [projectTags, setProjectTags] = useState<string>('');
   const [user, setUser] = useState<UserInfoDTO | null>(null);
   const [projects, setProjects] = useState<ProjectDTO[]>([]);
   const [selectedProject, setSelectedProject] = useState<ProjectDetailDTO | null>(null);
@@ -990,7 +994,10 @@ export default function TrainingProjectsPage() {
         teams: teamsWithProgress, // 使用带成员、评分和进度的团队列表
         comments: commentsData,
         assignedStudents: projectDetail.assignedStudents || [],
-        progress: projectProgress || 0 // 将项目总进度添加到 completeProject
+        progress: projectProgress || 0, // 将项目总进度添加到 completeProject
+        tags: typeof projectDetail.tags === 'string'
+            ? (projectDetail.tags as string).split(',').map(tag => tag.trim())
+            : projectDetail.tags || []
       };
 
       console.log("完整项目详情:", completeProject);
@@ -1055,6 +1062,7 @@ export default function TrainingProjectsPage() {
       const description = (document.getElementById('description') as HTMLTextAreaElement)?.value || "项目描述";
       const startDate = (document.getElementById('startDate') as HTMLInputElement)?.value || "";
       const endDate = (document.getElementById('endDate') as HTMLInputElement)?.value || "";
+      const tags = projectTags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0).join(',');
 
       // 检查用户是否登录
       if (!user) {
@@ -1067,7 +1075,8 @@ export default function TrainingProjectsPage() {
         description,
         creatorId: user.id,
         startDate,
-        endDate
+        endDate,
+        tags
       };
 
       console.log("创建项目请求体:", projectData);
@@ -1811,6 +1820,13 @@ export default function TrainingProjectsPage() {
                 <div className="flex-1">
                   <h1 className="text-3xl font-bold text-gray-900 mb-2">{selectedProject.title}</h1>
                   <p className="text-gray-600 mb-4">{selectedProject.description}</p>
+                  {selectedProject.tags && selectedProject.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mb-4">
+                        {selectedProject.tags.map((tag, index) => (
+                            <Badge key={index} variant="secondary">{tag}</Badge>
+                        ))}
+                      </div>
+                  )}
                   {projectProgress !== null && (
                       <div className="mb-4">
                         <Label htmlFor="project-progress" className="text-lg font-semibold">项目总进度</Label>
@@ -2777,6 +2793,16 @@ export default function TrainingProjectsPage() {
                               type="date"
                           />
                         </div>
+                      </div>
+
+                      <div>
+                        <Label htmlFor="tags">项目标签 (逗号分隔)</Label>
+                        <Input
+                            id="tags"
+                            placeholder="例如: React, Next.js, TypeScript"
+                            value={projectTags}
+                            onChange={(e) => setProjectTags(e.target.value)}
+                        />
                       </div>
                     </div>
                     <DialogFooter>
