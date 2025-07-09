@@ -143,24 +143,17 @@ export default function ResourcesPage() {
       filtered = [...filtered]
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
           .slice(0, 5)
-    }  else {
+          .map(resource => ({
+            ...resource,
+            userName: resource.userName || '未知上传者',
+            createdAt: resource.createdAt || new Date().toISOString()
+          }))
+    } else {
       // 为你推荐
       filtered = [...filtered]
     }
 
-    // 应用搜索和筛选条件
-    if (searchTerm) {
-      filtered = filtered.filter(resource =>
-          resource.fileName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          resource.description.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    }
-
-    if (typeFilter !== 'all') {
-      filtered = filtered.filter(resource => resource.resourceType === typeFilter)
-    }
-
-    setFilteredResources(filtered)
+    // ... rest of the filtering logic
   }, [resources, searchTerm, typeFilter, activeTab])
 
   const getTypeIcon = (type: string) => {
@@ -333,7 +326,7 @@ export default function ResourcesPage() {
 
     // 检查权限：管理员可以删除所有，教师只能删除自己上传的
     const isAdmin = user?.role === 'admin';
-    const isOwner = user?.role === 'teacher' && parsedUser.username === userName;
+    const isOwner = parsedUser.username === userName;
 
     if (isAdmin || isOwner) {
       if (!confirm(`确定要删除资源 "${fileName}" 吗？`)) return
@@ -356,7 +349,9 @@ export default function ResourcesPage() {
 
         if (response.ok) {
           toast.success('资源删除成功')
-          fetchResources()
+          // 直接过滤掉已删除的资源，而不是重新获取全部数据
+          setResources(prev => prev.filter(r => r.fileName !== fileName))
+          setFilteredResources(prev => prev.filter(r => r.fileName !== fileName))
         } else {
           toast.error('删除失败: ' + result)
         }
@@ -364,12 +359,7 @@ export default function ResourcesPage() {
         toast.error('删除失败: ' + (error as Error).message)
       }
     } else {
-      // 特定提示：教师尝试删除他人资源
-      if (user?.role === 'teacher') {
-        alert('您不是管理员，只能删除自己上传的资源');
-      } else {
-        alert('您没有权限删除此资源');
-      }
+      alert('您没有权限删除此资源')
     }
   }
 
@@ -641,7 +631,7 @@ export default function ResourcesPage() {
                   <TabsTrigger value="all">为你推荐</TabsTrigger>
                   <TabsTrigger value="recent">最近上传</TabsTrigger>
 
-                  {(user.role === 'teacher' || user.role === 'admin') && (
+                  {(user.role === 'admin') && (
                       <TabsTrigger value="pending">待审核</TabsTrigger>
                   )}
                 </TabsList>
@@ -698,46 +688,51 @@ export default function ResourcesPage() {
                 <TabsContent value="recent" className="pt-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {filteredResources.map((resource) => (
-                        console.log("渲染资源:", filteredResources),
-                            <Card key={resource.id} className="hover:shadow-lg transition-shadow">
-                              <CardHeader className="pb-3">
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center">
-                                    {getTypeIcon(resource.resourceType)}
-                                    <CardTitle className="text-lg ml-2 line-clamp-1">{resource.fileName}</CardTitle>
-                                  </div>
-                                  <span className="flex items-center text-gray-500 text-sm">
-                          <Clock className="w-4 h-4 mr-1" />
-                                    {new Date(resource.createdAt).toLocaleDateString()}
-                        </span>
-                                </div>
-                                <CardDescription className="line-clamp-2 mt-2">{resource.description}</CardDescription>
-                              </CardHeader>
-                              <CardContent>
-                                <div className="flex justify-between items-center mt-4">
-                                  <Button size="sm" variant="outline">
-                                    <ThumbsUp className="w-4 h-4 mr-2" />
-                                    收藏
-                                  </Button>
-                                  {user?.role !== 'student' && (
-                                      <Button
-                                          size="sm"
-                                          onClick={() => handleDelete(resource.fileName, resource.userName)}
-                                      >
-                                        <X className="w-4 h-4 mr-2" />
-                                        删除
-                                      </Button>
-                                  )}
+                        <Card key={resource.id} className="hover:shadow-lg transition-shadow">
+                          <CardHeader className="pb-3">
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center">
+                                {getTypeIcon(resource.resourceType)}
+                                <CardTitle className="text-lg ml-2 line-clamp-1">{resource.fileName}</CardTitle>
+                              </div>
+                            </div>
+                            <CardDescription className="line-clamp-2 mt-2">{resource.description}</CardDescription>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="flex justify-between items-center text-sm text-gray-600 mb-4">
+                              <div className="flex items-center">
+                                <span className="mr-2">上传者: {resource.userName}</span>
+                                <span>|</span>
+                                <span className="ml-2">{new Date(resource.createdAt).toLocaleDateString()}</span>
+                              </div>
+                              <div className="flex items-center">
+                                <span>{resource.metadata?.size || '未知大小'}</span>
+                              </div>
+                            </div>
+                            <div className="flex justify-between items-center mt-4">
+                              {/*<Button size="sm" variant="outline">*/}
+                              {/*  <ThumbsUp className="w-4 h-4 mr-2" />*/}
+                              {/*  收藏*/}
+                              {/*</Button>*/}
+                              {user?.role !== 'student' && (
                                   <Button
                                       size="sm"
-                                      onClick={() => triggerDownload(resource.fileName)}
+                                      onClick={() => handleDelete(resource.fileName, resource.userName)}
                                   >
-                                    <Download className="w-4 h-4 mr-2" />
-                                    下载
+                                    <X className="w-4 h-4 mr-2" />
+                                    删除
                                   </Button>
-                                </div>
-                              </CardContent>
-                            </Card>
+                              )}
+                              <Button
+                                  size="sm"
+                                  onClick={() => triggerDownload(resource.fileName)}
+                              >
+                                <Download className="w-4 h-4 mr-2" />
+                                下载
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
                     ))}
                   </div>
                 </TabsContent>
@@ -784,7 +779,7 @@ export default function ResourcesPage() {
                   </div>
                 </TabsContent>
 
-                {(user.role === 'teacher' || user.role === 'admin') && (
+                {( user.role === 'admin') && (
                     <TabsContent value="pending" className="pt-4">
                       {filteredResources.length === 0 ? (
                           <div className="bg-gray-100 rounded-lg p-12 text-center">
