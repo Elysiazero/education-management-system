@@ -40,9 +40,17 @@ import {
   UserCog,
   GraduationCap,
   Send,
-  Download,
+  Download, Minus,
 } from "lucide-react"
 import { toast } from "@/components/ui/use-toast"
+
+import {
+  Select,
+  SelectTrigger,
+  SelectValue,
+  SelectContent,
+  SelectItem,
+} from "@/components/ui/select";
 
 // API基础URL配置
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8080/api/v1/teaching";
@@ -153,6 +161,11 @@ const TeamCard = ({
 }) => {
   const [loading, setLoading] = useState(false);
   const [members, setMembers] = useState<UserInfoDTO[]>([]);
+  const [openAddMember, setOpenAddMember] = useState(false);
+  const [selectedClassId, setSelectedClassId] = useState<string>('');
+  const [selectedStudentId, setSelectedStudentId] = useState<string>('');
+  const [classes, setClasses] = useState<ClassDTO[]>([]);
+  const [studentsMap, setStudentsMap] = useState<{ [key: number]: UserInfoDTO[] }>({});
 
   // 获取团队成员
   const fetchTeamMembers = useCallback(async (teamId: number) => {
@@ -168,13 +181,11 @@ const TeamCard = ({
         const memberIdsToFetch = new Set<number>();
         const finalMembersMap = new Map<number, UserInfoDTO>();
 
-        // First add initial data to Map
         initialMembersData.forEach(member => {
           memberIdsToFetch.add(member.userId);
           finalMembersMap.set(member.userId, member);
         });
 
-        // Get detailed user info
         await Promise.all(Array.from(memberIdsToFetch).map(async (memberId) => {
           try {
             const userResponse = await fetch(`${USER_API_BASE_URL}/me/${memberId}`, {
@@ -182,7 +193,6 @@ const TeamCard = ({
             });
             if (userResponse.ok) {
               const memberDetail = await userResponse.json();
-              // Use userId as key to update user info in Map
               finalMembersMap.set(memberId, memberDetail);
             }
           } catch (err) {
@@ -191,7 +201,6 @@ const TeamCard = ({
         }));
 
         setMembers(Array.from(finalMembersMap.values()));
-
       } else {
         console.error(`获取团队 ${teamId} 成员失败: ${response.status}`);
       }
@@ -202,6 +211,40 @@ const TeamCard = ({
     }
   }, []);
 
+  // 一次性获取所有班级和学生数据
+  const fetchClassesAndStudents = async () => {
+    try {
+      const token = localStorage.getItem("accessToken");
+      if (!token) throw new Error("用户未登录");
+
+      // 获取班级列表
+      const classesResponse = await fetch(`${API_BASE_URL}/admin/classes`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (!classesResponse.ok) throw new Error("获取班级列表失败");
+      const classesData = (await classesResponse.json()).data;
+      const classesList: ClassDTO[] = classesData?.content || classesData?.records || [];
+console.log('banji',classesList);
+      // 获取所有班级的学生
+      const studentsMap: { [key: number]: UserInfoDTO[] } = {};
+      await Promise.all(classesList.map(async (cls) => {
+        const classDetailResponse = await fetch(`${API_BASE_URL}/classes/${cls.id}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+
+        if (classDetailResponse.ok) {
+          studentsMap[cls.id] = ((await classDetailResponse.json()).data)?.members || [];
+        }
+      }));
+console.log('xuesheng',studentsMap);
+      setClasses(classesList);
+      setStudentsMap(studentsMap);
+    } catch (err) {
+      console.error("获取班级和学生失败:", err);
+    }
+  };
+
   // 加载团队成员
   useEffect(() => {
     if (team.id) {
@@ -209,94 +252,323 @@ const TeamCard = ({
     }
   }, [team.id, fetchTeamMembers]);
 
+  // 当打开添加成员弹窗时获取班级和学生数据
+  useEffect(() => {
+    if (openAddMember && user?.role === "teacher") {
+      fetchClassesAndStudents();
+    }
+  }, [openAddMember, user?.role]);
+
+  // 删除团队
+  const handleDeleteTeam = async () => {
+    if (!confirm("确定要删除这个团队吗？")) return;
+
+    try {
+      setLoading(true);
+      const token = localStorage.getItem("accessToken");
+      const response = await fetch(`${API_BASE_URL}/teams/${team.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      if (response.ok) {
+        alert("团队删除成功");
+        // 删除成功后刷新当前页面
+        window.location.reload();
+      } else {
+        const errorData = await response.json();
+        alert(`团队删除失败: ${errorData.message || response.statusText}`);
+      }
+    } catch (err) {
+      console.error("删除团队失败:", err);
+      alert("删除团队失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 添加团队成员 - 使用正确的接口路径
+  const handleAddMember = async () => {
+    if (!selectedStudentId) {
+      alert("请选择要添加的学生");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const token = localStorage.getItem("accessToken");
+
+      // 使用正确的添加成员接口路径
+      const response = await fetch(
+          `${API_BASE_URL}/team-members/${team.id}/members/${selectedStudentId}`,
+          {
+            method: "POST", // 添加成员是 POST 请求
+            headers: {
+              Authorization: `Bearer ${token}`
+            }
+          }
+      );
+
+      if (response.ok) {
+        alert("成员添加成功");
+        fetchTeamMembers(team.id);
+        setOpenAddMember(false);
+        setSelectedClassId("");
+        setSelectedStudentId("");
+      } else {
+        const errorData = await response.json();
+        alert(`成员添加失败: ${errorData.message || response.statusText}`);
+      }
+    } catch (err) {
+      console.error("添加成员失败:", err);
+      alert("添加成员失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 删除团队成员 - 使用正确的接口路径
+  const handleRemoveMember = async (userId: number) => {
+    if (!confirm("确定要移除这个成员吗？")) return;
+
+    try {
+      setLoading(true);
+      const token = localStorage.getItem("accessToken");
+      console.log('userid:', userId);
+
+      // 使用删除成员接口路径
+      const response = await fetch(
+          `${API_BASE_URL}/team-members/${team.id}/${userId}`, // 直接使用用户ID
+          {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` }
+          }
+      );
+
+      if (response.ok) {
+        alert("成员移除成功");
+        fetchTeamMembers(team.id);
+      } else {
+        const errorData = await response.json();
+        alert(`成员移除失败: ${errorData.message || response.statusText}`);
+      }
+    } catch (err) {
+      console.error("移除成员失败:", err);
+      alert("移除成员失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 获取当前班级的学生列表
+  const currentStudents = selectedClassId
+      ? studentsMap[parseInt(selectedClassId)] || []
+      : [];
+
   const leaderId = team.leaderId || 0;
   const isMyTeam = user && members.some(m => m?.id === user?.id);
 
   return (
-      <Card className={isMyTeam ? "ring-2 ring-blue-500 bg-blue-50/30" : ""}>
-        <CardHeader>
-          <CardTitle className="flex items-center justify-between">
-            <div className="flex items-center">
-              {team.name || "未命名团队"}
-              {isMyTeam && <Badge className="ml-2">我的团队</Badge>}
-            </div>
-            <Badge variant="outline">
-              <Users className="w-3 h-3 mr-1" />
-              {members.length}人
-            </Badge>
-
-            {/* 添加评分按钮 - 只对教师显示 */}
-            {user?.role === "teacher" && (
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => onGradeTeam && onGradeTeam(team)}
-                    disabled={team.score !== null} // 如果已评分，则禁用按钮
-                >
-                  <Star className="w-3 h-3 mr-1 text-yellow-500" />
-                  {team.score !== null ? "已评分" : "评分"} {/* 根据是否已评分显示不同文本 */}
-                </Button>
-            )}
-          </CardTitle>
-          <CardDescription>
-            {team.description || "无描述"}
-          </CardDescription>
-        </CardHeader>
-
-        <CardContent>
-          <div className="space-y-4">
-            <div>
-              <div className="flex justify-between text-sm mb-2">
-                <span>团队进度</span>
-                <span>{team.progress || 0}%</span>
+      <>
+        <Card className={isMyTeam ? "ring-2 ring-blue-500 bg-blue-50/30" : ""}>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between">
+              <div className="flex items-center">
+                {team.name || "未命名团队"}
+                {isMyTeam && <Badge className="ml-2">我的团队</Badge>}
               </div>
-              <Progress value={team.progress || 0} />
-            </div>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline">
+                  <Users className="w-3 h-3 mr-1" />
+                  {members.length}人
+                </Badge>
 
-            <div>
-              <p className="text-sm font-medium mb-2">团队成员</p>
-              <div className="space-y-1">
-                {loading ? (
-                    <div className="flex justify-center py-2">
-                      <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-blue-500"></div>
+                {user?.role === "teacher" && (
+                    <div className="flex gap-2">
+                      <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={handleDeleteTeam}
+                          disabled={loading}
+                      >
+                        <Trash2 className="w-3 h-3 mr-1" />
+                        删除团队
+                      </Button>
+
+                      <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => onGradeTeam && onGradeTeam(team)}
+                          disabled={team.score !== null || loading}
+                      >
+                        <Star className="w-3 h-3 mr-1 text-yellow-500" />
+                        {team.score !== null ? "已评分" : "评分"}
+                      </Button>
                     </div>
-                ) : (
-                    <>
-                      {members.map(member => (
-                          <div key={member.id} className="flex items-center space-x-2 text-sm">
-                            <Avatar className="w-6 h-6">
-                              <AvatarFallback>
-                                {member.realName?.charAt(0) || "U"}
-                              </AvatarFallback>
-                            </Avatar>
-                            <span className={member.id === user?.id ? "font-medium text-blue-600" : ""}>
-                        {member.id === user?.id
-                            ? `我 (${member.realName || member.username})`
-                            : member.realName || member.username}
-                      </span>
-                            {leaderId === member.id && (
-                                <Badge variant="outline" className="text-xs">组长</Badge>
-                            )}
-                          </div>
-                      ))}
-
-                      {members.length === 0 && !loading && (
-                          <p className="text-xs text-gray-500">暂无成员信息</p>
-                      )}
-                    </>
                 )}
               </div>
+            </CardTitle>
+            <CardDescription>
+              {team.description || "无描述"}
+            </CardDescription>
+          </CardHeader>
+
+          <CardContent>
+            <div className="space-y-4">
+              <div>
+                <div className="flex justify-between text-sm mb-2">
+                  <span>团队进度</span>
+                  <span>{team.progress || 0}%</span>
+                </div>
+                <Progress value={team.progress || 0} />
+              </div>
+
+              <div>
+                <div className="flex justify-between items-center mb-2">
+                  <p className="text-sm font-medium">团队成员</p>
+
+                  {user?.role === "teacher" && (
+                      <Button
+                          variant="ghost"
+                          size="icon"
+                          className="w-6 h-6"
+                          onClick={() => setOpenAddMember(true)}
+                          disabled={loading}
+                      >
+                        <Plus className="w-3 h-3" />
+                      </Button>
+                  )}
+                </div>
+
+                <div className="space-y-1">
+                  {loading ? (
+                      <div className="flex justify-center py-2">
+                        <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-blue-500"></div>
+                      </div>
+                  ) : (
+                      <>
+                        {members.map(member => (
+                            <div key={member.id} className="flex items-center justify-between group">
+                              <div className="flex items-center space-x-2 text-sm">
+                                <Avatar className="w-6 h-6">
+                                  <AvatarFallback>
+                                    {member.realName?.charAt(0) || "U"}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <span className={member.id === user?.id ? "font-medium text-blue-600" : ""}>
+                            {member.id === user?.id
+                                ? `我 (${member.realName || member.username})`
+                                : member.realName || member.username}
+                          </span>
+                                {leaderId === member.id && (
+                                    <Badge variant="outline" className="text-xs">组长</Badge>
+                                )}
+                              </div>
+
+                              {user?.role === "teacher" && (
+                                  <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="w-5 h-5 opacity-0 group-hover:opacity-100 transition-opacity"
+                                      onClick={() => handleRemoveMember(member.id)}
+                                      disabled={loading}
+                                  >
+                                    <Minus className="w-3 h-3 text-red-500" />
+                                  </Button>
+                              )}
+                            </div>
+                        ))}
+
+                        {members.length === 0 && !loading && (
+                            <p className="text-xs text-gray-500">暂无成员信息</p>
+                        )}
+                      </>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 text-sm border-t pt-3">
+                <div><span className="text-gray-500">组长ID</span> {leaderId}</div>
+                <div><span className="text-gray-500">项目ID</span> {team.projectId || '0'}</div>
+                <div><span className="text-gray-500">创建时间</span> {new Date(team.createdAt).toLocaleDateString()}</div>
+                <div><span className="text-gray-500">更新时间</span> {new Date(team.updatedAt).toLocaleDateString()}</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* 添加成员弹窗 - 修复版本 */}
+        <Dialog open={openAddMember} onOpenChange={setOpenAddMember}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>添加团队成员</DialogTitle>
+              {/* 添加描述解决可访问性问题 */}
+              <DialogDescription>
+                从班级中选择学生添加到当前团队
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid gap-4 py-4">
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label className="text-right">选择班级</Label>
+                <Select
+                    value={selectedClassId || ""} // 确保值不为null
+                    onValueChange={(newValue: string) => {
+                      setSelectedClassId(newValue);
+                      setSelectedStudentId(""); // 重置学生选择
+                    }}
+                >
+                  <SelectTrigger className="col-span-3">
+                    <SelectValue placeholder="选择班级" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {classes.map(c => (
+                        <SelectItem key={c.id} value={c.id.toString()}>
+                          {c.name}
+                        </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-4 items-center gap-4">
+                <Label className="text-right">选择学生</Label>
+                <Select
+                    value={selectedStudentId || ""} // 确保值不为null
+                    onValueChange={(newValue: string) => setSelectedStudentId(newValue)}
+                    disabled={!selectedClassId}
+                >
+                  <SelectTrigger className="col-span-3">
+                    <SelectValue placeholder="选择学生" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {currentStudents.map(s => (
+                        <SelectItem key={s.id} value={s.id.toString()}>
+                          {s.realName || s.username}
+                        </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 text-sm border-t pt-3">
-              <div><span className="text-gray-500">组长ID</span> {leaderId}</div>
-              <div><span className="text-gray-500">项目ID</span> {team.projectId || '0'}</div>
-              <div><span className="text-gray-500">创建时间</span> {new Date(team.createdAt).toLocaleDateString()}</div>
-              <div><span className="text-gray-500">更新时间</span> {new Date(team.updatedAt).toLocaleDateString()}</div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+            <DialogFooter>
+              <Button
+                  variant="outline"
+                  onClick={() => setOpenAddMember(false)}
+              >
+                取消
+              </Button>
+              <Button
+                  onClick={handleAddMember}
+                  disabled={!selectedStudentId || loading}
+              >
+                添加成员
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </>
   );
 };
 
