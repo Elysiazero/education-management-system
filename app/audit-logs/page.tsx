@@ -509,8 +509,6 @@ export default function AuditLogsPage() {
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
           <TabsList className="grid w-full grid-cols-2 md:grid-cols-4">
             <TabsTrigger value="all">全部日志</TabsTrigger>
-            <TabsTrigger value="班级管理">班级管理</TabsTrigger>
-            <TabsTrigger value="实验管理">实验管理</TabsTrigger>
             <TabsTrigger value="analytics">数据分析</TabsTrigger>
           </TabsList>
 
